@@ -114,9 +114,6 @@ export default function Dashboard() {
               <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
               {syncMutation.isPending ? "Syncing..." : "Sync Now"}
              </Button>
-             <Button className="h-9 bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_-5px_var(--color-primary)]">
-              Auto-Apply All (3)
-             </Button>
           </div>
         </div>
 

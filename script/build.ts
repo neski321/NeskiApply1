@@ -59,6 +59,21 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  console.log("building railway cron job...");
+  await esbuild({
+    entryPoints: ["server/cron/railway-cron.ts"],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: "dist/cron/railway-cron.cjs",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+    minify: true,
+    external: externals,
+    logLevel: "info",
+  });
 }
 
 buildAll().catch((err) => {

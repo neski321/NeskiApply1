@@ -19,17 +19,17 @@ export interface DiscordWebhookPayload {
 /**
  * Send a Discord webhook notification
  */
-export async function sendDiscordNotification(payload: DiscordWebhookPayload): Promise<boolean> {
+export async function sendDiscordNotification(payload: DiscordWebhookPayload, userId: string): Promise<boolean> {
   try {
     // Check if Discord notifications are enabled
-    const notificationsEnabled = await storage.getSetting("discord_notifications");
+    const notificationsEnabled = await storage.getSetting("discord_notifications", userId);
     if (!notificationsEnabled || notificationsEnabled.value !== "true") {
       console.log("Discord notifications are disabled");
       return false;
     }
 
     // Get webhook URL
-    const webhookSetting = await storage.getSetting("discord_webhook");
+    const webhookSetting = await storage.getSetting("discord_webhook", userId);
     if (!webhookSetting || !webhookSetting.value) {
       console.log("Discord webhook URL not configured");
       return false;
@@ -109,11 +109,12 @@ export async function notifyHighMatchJob(
   company: string,
   location: string,
   matchScore: number,
+  userId: string,
   jobUrl?: string,
   resumeName?: string
 ): Promise<boolean> {
   // Get notification threshold from settings (default: 70%)
-  const thresholdSetting = await storage.getSetting("discord_notification_threshold");
+  const thresholdSetting = await storage.getSetting("discord_notification_threshold", userId);
   const notificationThreshold = thresholdSetting ? parseInt(thresholdSetting.value, 10) : 70;
 
   // Only notify if match score is above threshold
@@ -169,13 +170,13 @@ export async function notifyHighMatchJob(
     ],
   };
 
-  return await sendDiscordNotification(payload);
+  return await sendDiscordNotification(payload, userId);
 }
 
 /**
  * Send a test notification
  */
-export async function sendTestNotification(): Promise<boolean> {
+export async function sendTestNotification(userId: string): Promise<boolean> {
   const payload: DiscordWebhookPayload = {
     content: "🧪 Test notification from NeskiApply", // Discord may require content field
     embeds: [
@@ -200,6 +201,6 @@ export async function sendTestNotification(): Promise<boolean> {
     ],
   };
 
-  return await sendDiscordNotification(payload);
+  return await sendDiscordNotification(payload, userId);
 }
 

@@ -132,9 +132,14 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Setup daily job scraping cron job
-  const { setupDailyScraping } = await import("./cron/index");
-  await setupDailyScraping();
+  // Setup daily job scraping cron job (only if not using Railway cron)
+  // Set DISABLE_NODE_CRON=true if using Railway's native cron jobs
+  if (!process.env.DISABLE_NODE_CRON) {
+    const { setupDailyScraping } = await import("./cron/index");
+    await setupDailyScraping();
+  } else {
+    console.log("[Server] node-cron disabled - using Railway cron jobs instead");
+  }
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
