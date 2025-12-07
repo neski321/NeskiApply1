@@ -1013,16 +1013,17 @@ Return your response as JSON in this exact format:
   });
 
   // Test Discord webhook
-  app.post("/api/discord/test", async (req, res) => {
+  app.post("/api/discord/test", requireAuth, async (req, res) => {
     // Ensure we always send a JSON response
     res.setHeader("Content-Type", "application/json");
     
     try {
+      const userId = getUserIdFromRequest(req);
       console.log("[Discord Test] Route hit - Starting Discord webhook test...");
       const { sendTestNotification } = await import("./discord");
       
       try {
-        const success = await sendTestNotification();
+        const success = await sendTestNotification(userId);
         
         if (success) {
           console.log("[Discord Test] Success - notification sent");

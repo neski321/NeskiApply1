@@ -145,6 +145,7 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
         job.company,
         job.location,
         matchResult.matchScore,
+        userId,
         job.url || undefined,
         matchedResume?.name
       );
