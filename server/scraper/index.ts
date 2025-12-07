@@ -14,6 +14,7 @@ export interface ScrapeOptions {
   locationFilter?: string; // For LinkedIn: full location names like "United States", "New York"
   linkedInTimePeriod?: LinkedInTimePeriod; // "24h", "7d", or "both"
   jobSearchProviderPreference?: JobSearchProviderPreference; // "auto" (both), "jsearch", or "linkedin"
+  userId: string; // User ID for user-specific data
 }
 
 export interface ScrapeResult {
@@ -38,6 +39,7 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
     locationFilter,
     linkedInTimePeriod = "both", // Default to both 24h and 7d
     jobSearchProviderPreference = "auto", // Default to both providers
+    userId,
   } = options;
   
   // Enforce maximum of 5 jobs per day for JSearch only (to manage API credits)
@@ -50,10 +52,10 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
   const results: ScrapeResult[] = [];
   
   // Get API keys and hosts from settings
-  const jsearchApiKey = await storage.getSetting("jsearch_api_key");
-  const linkedInApiKey = await storage.getSetting("linkedin_api_key");
-  const jsearchRapidApiHost = await storage.getSetting("jsearch_rapidapi_host");
-  const linkedInRapidApiHost = await storage.getSetting("linkedin_rapidapi_host");
+  const jsearchApiKey = await storage.getSetting("jsearch_api_key", userId);
+  const linkedInApiKey = await storage.getSetting("linkedin_api_key", userId);
+  const jsearchRapidApiHost = await storage.getSetting("jsearch_rapidapi_host", userId);
+  const linkedInRapidApiHost = await storage.getSetting("linkedin_rapidapi_host", userId);
 
   // Filter out excluded keywords
   const filterJob = (job: InsertJob): boolean => {
@@ -105,13 +107,13 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
       
       for (const job of filteredJobs) {
         try {
-          const savedJob = await storage.upsertJobByExternalId(job);
+          const savedJob = await storage.upsertJobByExternalId(job, userId);
           if (savedJob) {
             jobsAdded++;
             
             // Auto-match the job against resumes (in background)
             import("../matcher/job-matcher").then(({ matchAndUpdateJob }) => {
-              matchAndUpdateJob(savedJob.id).catch(err => 
+              matchAndUpdateJob(savedJob.id, userId).catch(err => 
                 console.error(`Error auto-matching job ${savedJob.id}:`, err)
               );
             });
@@ -123,7 +125,7 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
       
       const { activityLogger } = await import("../logger");
       if (jobsAdded > 0) {
-        await activityLogger.info(`JSearch scraper: ${jobsAdded} jobs added`, { source: "JSearch", jobsAdded });
+        await activityLogger.info(`JSearch scraper: ${jobsAdded} jobs added`, { source: "JSearch", jobsAdded }, userId);
       }
       
       results.push({
@@ -213,13 +215,13 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
       
       for (const job of filteredJobs) {
         try {
-          const savedJob = await storage.upsertJobByExternalId(job);
+          const savedJob = await storage.upsertJobByExternalId(job, userId);
           if (savedJob) {
             jobsAdded++;
             
             // Auto-match the job against resumes (in background)
             import("../matcher/job-matcher").then(({ matchAndUpdateJob }) => {
-              matchAndUpdateJob(savedJob.id).catch(err => 
+              matchAndUpdateJob(savedJob.id, userId).catch(err => 
                 console.error(`Error auto-matching job ${savedJob.id}:`, err)
               );
             });
@@ -235,7 +237,7 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
           source: "ActiveJobsDB", 
           timePeriod: linkedInTimePeriod,
           jobsAdded 
-        });
+        }, userId);
       }
       
       results.push({

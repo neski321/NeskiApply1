@@ -1,4 +1,67 @@
-import type { Resume, InsertResume, Job, InsertJob, ATSAnalysis, Setting, ActivityLog } from "@shared/schema";
+import type { Resume, InsertResume, Job, InsertJob, ATSAnalysis, Setting, ActivityLog, User } from "@shared/schema";
+
+// ============ AUTHENTICATION API ============
+
+export interface AuthResponse {
+  authenticated: boolean;
+  user: User | null;
+}
+
+export async function getAuthStatus(): Promise<AuthResponse> {
+  const response = await fetch("/api/auth/me", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to check authentication");
+  return response.json();
+}
+
+export async function login(username: string, password: string): Promise<{ success: boolean; message: string; user: User }> {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to login");
+  }
+  return response.json();
+}
+
+export async function register(username: string, password: string): Promise<{ success: boolean; message: string; user: User; redirectToSettings?: boolean }> {
+  const response = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to register");
+  }
+  return response.json();
+}
+
+export async function checkRequiredSettings(): Promise<{ configured: boolean; missing: string[]; hasPerplexity: boolean; hasGemini: boolean; hasDiscord: boolean }> {
+  const response = await fetch("/api/settings/check-required", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to check required settings");
+  return response.json();
+}
+
+export async function logout(): Promise<{ success: boolean; message: string }> {
+  const response = await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to logout");
+  }
+  return response.json();
+}
 
 // ============ RESUMES API ============
 
@@ -223,12 +286,29 @@ export async function matchJobs(): Promise<{ message: string }> {
 
 // ============ ACTIVITY LOGS API ============
 
-export async function getActivityLogs(limit?: number): Promise<ActivityLog[]> {
+// Extended type for activity logs with user info (for admins)
+export type ActivityLogWithUser = ActivityLog & {
+  user?: { id: string; username: string };
+};
+
+export async function getActivityLogs(limit?: number): Promise<ActivityLogWithUser[]> {
   const params = new URLSearchParams();
   if (limit) params.append("limit", limit.toString());
   
-  const response = await fetch(`/api/activity?${params}`);
+  const response = await fetch(`/api/activity?${params}`, {
+    credentials: "include",
+  });
   if (!response.ok) throw new Error("Failed to fetch activity logs");
+  return response.json();
+}
+
+// ============ ADMIN API ============
+
+export async function getAllUsers(): Promise<Array<Omit<User, "password">>> {
+  const response = await fetch("/api/admin/users", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to fetch users");
   return response.json();
 }
 
@@ -247,4 +327,66 @@ export async function getAPIUsage(): Promise<APIUsage> {
   const response = await fetch("/api/usage");
   if (!response.ok) throw new Error("Failed to fetch API usage");
   return response.json();
+}
+
+// ============ CRON API ============
+
+export async function rescheduleCronJob(): Promise<{ success: boolean; message?: string; error?: string }> {
+  const response = await fetch("/api/cron/reschedule", {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to reschedule cron job");
+  }
+  
+  return response.json();
+}
+
+// ============ DISCORD API ============
+
+export async function testDiscordWebhook(): Promise<{ success: boolean; message?: string; error?: string }> {
+  const response = await fetch("/api/discord/test", {
+    method: "POST",
+  });
+  
+  // Check content type before parsing
+  const contentType = response.headers.get("content-type");
+  const isJson = contentType && contentType.includes("application/json");
+  
+  if (!response.ok) {
+    let errorMessage = "Failed to test Discord webhook";
+    try {
+      if (isJson) {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } else {
+        // If not JSON, try to get text
+        const text = await response.text();
+        // If it's HTML, provide a generic error
+        if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+          errorMessage = `Server returned an error page (${response.status}). Please check your Discord webhook URL and try again.`;
+        } else {
+          errorMessage = text || errorMessage;
+        }
+      }
+    } catch (parseError) {
+      // If we can't parse the error, use status text
+      errorMessage = `${response.status} ${response.statusText}`;
+    }
+    throw new Error(errorMessage);
+  }
+  
+  // Parse successful response
+  if (isJson) {
+    return response.json();
+  } else {
+    // If not JSON, return a success message
+    const text = await response.text();
+    return { 
+      success: true, 
+      message: text || "Discord webhook test completed" 
+    };
+  }
 }

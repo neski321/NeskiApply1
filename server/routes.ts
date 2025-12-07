@@ -2,23 +2,142 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
+import passport from "passport";
+import bcrypt from "bcrypt";
 import { storage } from "./storage";
-import { insertResumeSchema, insertJobSchema, insertATSAnalysisSchema } from "@shared/schema";
+import { insertResumeSchema, insertJobSchema, insertATSAnalysisSchema, insertUserSchema } from "@shared/schema";
 import { z } from "zod";
 import { parseResume } from "./parser/resume-parser";
 import { unlink } from "fs/promises";
+import { requireAuth } from "./auth/middleware";
+import { getUserIdFromRequest, getUserFromRequest } from "./auth/helpers";
+import { isAdmin, requireAdmin } from "./auth/admin";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
+  // ============ AUTHENTICATION API ============
+  
+  // Check authentication status
+  app.get("/api/auth/me", (req, res) => {
+    if (req.isAuthenticated() && req.user) {
+      // Don't send password hash
+      const { password, ...userWithoutPassword } = req.user as any;
+      res.json({ authenticated: true, user: userWithoutPassword });
+    } else {
+      res.json({ authenticated: false, user: null });
+    }
+  });
+  
+  // Register new user
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      // Validate input
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+      
+      if (username.length < 3) {
+        return res.status(400).json({ error: "Username must be at least 3 characters" });
+      }
+      
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+      
+      // Check if user already exists
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+      
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      // Create user
+      const user = await storage.createUser({
+        username,
+        password: hashedPassword,
+      });
+      
+      // Auto-login after registration
+      req.login(user, (err) => {
+        if (err) {
+          return res.status(500).json({ error: "Failed to create session" });
+        }
+        
+        const { password: _, ...userWithoutPassword } = user;
+        res.json({ 
+          success: true, 
+          message: "User created successfully",
+          user: userWithoutPassword,
+          redirectToSettings: true // Flag to redirect to settings
+        });
+      });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({ 
+        error: "Failed to register user",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+  
+  // Login
+  app.post("/api/auth/login", (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
+      if (err) {
+        return res.status(500).json({ error: "Authentication error" });
+      }
+      
+      if (!user) {
+        return res.status(401).json({ 
+          error: info?.message || "Invalid username or password" 
+        });
+      }
+      
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          return res.status(500).json({ error: "Failed to create session" });
+        }
+        
+        const { password: _, ...userWithoutPassword } = user;
+        res.json({ 
+          success: true, 
+          message: "Login successful",
+          user: userWithoutPassword 
+        });
+      });
+    })(req, res, next);
+  });
+  
+  // Logout
+  app.post("/api/auth/logout", (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({ error: "Failed to logout" });
+      }
+      req.session.destroy((destroyErr) => {
+        if (destroyErr) {
+          return res.status(500).json({ error: "Failed to destroy session" });
+        }
+        res.clearCookie("connect.sid");
+        res.json({ success: true, message: "Logged out successfully" });
+      });
+    });
+  });
+  
   // ============ RESUMES API ============
   
   // Get all resumes
-  app.get("/api/resumes", async (req, res) => {
+  app.get("/api/resumes", requireAuth, async (req, res) => {
     try {
-      const resumes = await storage.getResumes();
+      const userId = getUserIdFromRequest(req);
+      const resumes = await storage.getResumes(userId);
       res.json(resumes);
     } catch (error) {
       console.error("Error fetching resumes:", error);
@@ -27,10 +146,11 @@ export async function registerRoutes(
   });
 
   // Get single resume
-  app.get("/api/resumes/:id", async (req, res) => {
+  app.get("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
-      const resume = await storage.getResume(id);
+      const resume = await storage.getResume(id, userId);
       
       if (!resume) {
         return res.status(404).json({ error: "Resume not found" });
@@ -44,14 +164,15 @@ export async function registerRoutes(
   });
 
   // Create resume
-  app.post("/api/resumes", async (req, res) => {
+  app.post("/api/resumes", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const validatedData = insertResumeSchema.parse(req.body);
-      const resume = await storage.createResume(validatedData);
+      const resume = await storage.createResume(validatedData, userId);
       
       // Log activity
       const { activityLogger } = await import("./logger");
-      await activityLogger.success(`Resume "${resume.name}" created`, { resumeId: resume.id });
+      await activityLogger.success(`Resume "${resume.name}" created`, { resumeId: resume.id }, userId);
       
       res.status(201).json(resume);
     } catch (error) {
@@ -64,13 +185,14 @@ export async function registerRoutes(
   });
 
   // Update resume
-  app.patch("/api/resumes/:id", async (req, res) => {
+  app.patch("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
       const partialSchema = insertResumeSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
-      const resume = await storage.updateResume(id, validatedData);
+      const resume = await storage.updateResume(id, validatedData, userId);
       
       if (!resume) {
         return res.status(404).json({ error: "Resume not found" });
@@ -87,11 +209,12 @@ export async function registerRoutes(
   });
 
   // Delete resume
-  app.delete("/api/resumes/:id", async (req, res) => {
+  app.delete("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
-      const resume = await storage.getResume(id);
-      const deleted = await storage.deleteResume(id);
+      const resume = await storage.getResume(id, userId);
+      const deleted = await storage.deleteResume(id, userId);
       
       if (!deleted) {
         return res.status(404).json({ error: "Resume not found" });
@@ -99,7 +222,7 @@ export async function registerRoutes(
       
       // Log activity
       const { activityLogger } = await import("./logger");
-      await activityLogger.info(`Resume "${resume?.name || id}" deleted`, { resumeId: id });
+      await activityLogger.info(`Resume "${resume?.name || id}" deleted`, { resumeId: id }, userId);
       
       res.status(204).send();
     } catch (error) {
@@ -139,8 +262,10 @@ export async function registerRoutes(
     },
   });
 
-  app.post("/api/resumes/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/resumes/upload", requireAuth, upload.single("file"), async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
+      
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
@@ -163,7 +288,7 @@ export async function registerRoutes(
         experience: parsed.experience,
         education: parsed.education || "",
         rawContent: parsed.rawContent,
-      });
+      }, userId);
 
       // Optionally keep the file, or delete it after parsing
       // For now, we'll keep it in case we need it later
@@ -172,7 +297,7 @@ export async function registerRoutes(
 
       // Log activity
       const { activityLogger } = await import("./logger");
-      await activityLogger.success(`Resume "${resume.name}" uploaded and parsed`, { resumeId: resume.id, fileName: req.file.originalname });
+      await activityLogger.success(`Resume "${resume.name}" uploaded and parsed`, { resumeId: resume.id, fileName: req.file.originalname }, userId);
 
       res.status(201).json(resume);
     } catch (error) {
@@ -200,15 +325,16 @@ export async function registerRoutes(
   // ============ JOBS API ============
   
   // Get all jobs (with optional filters)
-  app.get("/api/jobs", async (req, res) => {
+  app.get("/api/jobs", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const { status, minMatchScore } = req.query;
       
       const filters: any = {};
       if (status) filters.status = status as string;
       if (minMatchScore) filters.minMatchScore = parseInt(minMatchScore as string);
       
-      const jobs = await storage.getJobs(filters);
+      const jobs = await storage.getJobs(userId, filters);
       res.json(jobs);
     } catch (error) {
       console.error("Error fetching jobs:", error);
@@ -217,10 +343,11 @@ export async function registerRoutes(
   });
 
   // Get single job
-  app.get("/api/jobs/:id", async (req, res) => {
+  app.get("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
-      const job = await storage.getJob(id);
+      const job = await storage.getJob(id, userId);
       
       if (!job) {
         return res.status(404).json({ error: "Job not found" });
@@ -234,10 +361,11 @@ export async function registerRoutes(
   });
 
   // Create job
-  app.post("/api/jobs", async (req, res) => {
+  app.post("/api/jobs", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const validatedData = insertJobSchema.parse(req.body);
-      const job = await storage.createJob(validatedData);
+      const job = await storage.createJob(validatedData, userId);
       res.status(201).json(job);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -249,13 +377,14 @@ export async function registerRoutes(
   });
 
   // Update job
-  app.patch("/api/jobs/:id", async (req, res) => {
+  app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
       const partialSchema = insertJobSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
-      const job = await storage.updateJob(id, validatedData);
+      const job = await storage.updateJob(id, validatedData, userId);
       
       if (!job) {
         return res.status(404).json({ error: "Job not found" });
@@ -265,9 +394,9 @@ export async function registerRoutes(
       const { activityLogger } = await import("./logger");
       if (validatedData.status) {
         if (validatedData.status === "applied") {
-          await activityLogger.success(`Applied to "${job.title}" at ${job.company}`, { jobId: id });
+          await activityLogger.success(`Applied to "${job.title}" at ${job.company}`, { jobId: id }, userId);
         } else {
-          await activityLogger.info(`Job "${job.title}" status updated to ${validatedData.status}`, { jobId: id, status: validatedData.status });
+          await activityLogger.info(`Job "${job.title}" status updated to ${validatedData.status}`, { jobId: id, status: validatedData.status }, userId);
         }
       }
       
@@ -282,10 +411,11 @@ export async function registerRoutes(
   });
 
   // Delete job
-  app.delete("/api/jobs/:id", async (req, res) => {
+  app.delete("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
-      const deleted = await storage.deleteJob(id);
+      const deleted = await storage.deleteJob(id, userId);
       
       if (!deleted) {
         return res.status(404).json({ error: "Job not found" });
@@ -301,24 +431,25 @@ export async function registerRoutes(
   // ============ ATS ANALYSIS API ============
   
   // Analyze job description against resumes
-  app.post("/api/ats/analyze", async (req, res) => {
+  app.post("/api/ats/analyze", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const { jobTitle, jobCompany, jobDescription } = req.body;
       
       if (!jobDescription) {
         return res.status(400).json({ error: "Job description is required" });
       }
 
-      // Get all resumes
-      const resumes = await storage.getResumes();
+      // Get all resumes for this user
+      const resumes = await storage.getResumes(userId);
       
       if (resumes.length === 0) {
         return res.status(400).json({ error: "No resumes found. Please upload at least one resume first." });
       }
 
       // Check if at least one AI API key is configured
-      const perplexityKey = await storage.getSetting("perplexity_api_key");
-      const geminiKey = await storage.getSetting("gemini_api_key");
+      const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
+      const geminiKey = await storage.getSetting("gemini_api_key", userId);
       
       if ((!perplexityKey || !perplexityKey.value) && (!geminiKey || !geminiKey.value)) {
         return res.status(400).json({ 
@@ -368,7 +499,7 @@ Return your response as JSON in this exact format:
       ];
 
       // Call AI with fallback (Perplexity first, then Gemini)
-      const aiResult = await callAIWithFallback(messages, "sonar-pro");
+      const aiResult = await callAIWithFallback(messages, "sonar-pro", userId);
       
       if (!aiResult) {
         return res.status(500).json({ 
@@ -402,11 +533,11 @@ Return your response as JSON in this exact format:
         missingKeywords: analysisResult.missingKeywords || [],
         suggestions: analysisResult.suggestions || [],
         resumeComparisons: analysisResult.resumeComparisons || []
-      });
+      }, userId);
 
       // Log API usage
       const { logAPICall } = await import("./api-usage");
-      await logAPICall("ATS Analysis", { analysisId: savedAnalysis.id });
+      await logAPICall("ATS Analysis", { analysisId: savedAnalysis.id }, userId);
 
       res.json(savedAnalysis);
     } catch (error) {
@@ -416,10 +547,11 @@ Return your response as JSON in this exact format:
   });
 
   // Get analysis history
-  app.get("/api/ats/analyses", async (req, res) => {
+  app.get("/api/ats/analyses", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
-      const analyses = await storage.getATSAnalyses(limit);
+      const analyses = await storage.getATSAnalyses(userId, limit);
       res.json(analyses);
     } catch (error) {
       console.error("Error fetching analyses:", error);
@@ -428,10 +560,11 @@ Return your response as JSON in this exact format:
   });
 
   // Get single analysis
-  app.get("/api/ats/analyses/:id", async (req, res) => {
+  app.get("/api/ats/analyses/:id", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
-      const analysis = await storage.getATSAnalysis(id);
+      const analysis = await storage.getATSAnalysis(id, userId);
       
       if (!analysis) {
         return res.status(404).json({ error: "Analysis not found" });
@@ -447,9 +580,10 @@ Return your response as JSON in this exact format:
   // ============ SETTINGS API ============
   
   // Get all settings
-  app.get("/api/settings", async (req, res) => {
+  app.get("/api/settings", requireAuth, async (req, res) => {
     try {
-      const settings = await storage.getAllSettings();
+      const userId = getUserIdFromRequest(req);
+      const settings = await storage.getAllSettings(userId);
       res.json(settings);
     } catch (error) {
       console.error("Error fetching settings:", error);
@@ -458,9 +592,10 @@ Return your response as JSON in this exact format:
   });
 
   // Get single setting
-  app.get("/api/settings/:key", async (req, res) => {
+  app.get("/api/settings/:key", requireAuth, async (req, res) => {
     try {
-      const setting = await storage.getSetting(req.params.key);
+      const userId = getUserIdFromRequest(req);
+      const setting = await storage.getSetting(req.params.key, userId);
       
       if (!setting) {
         return res.status(404).json({ error: "Setting not found" });
@@ -474,8 +609,9 @@ Return your response as JSON in this exact format:
   });
 
   // Set a setting
-  app.post("/api/settings", async (req, res) => {
+  app.post("/api/settings", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const { key, value } = req.body;
       
       if (!key || value === undefined || value === null) {
@@ -483,7 +619,7 @@ Return your response as JSON in this exact format:
       }
       
       // Allow empty strings to clear settings (fallback to env vars)
-      const setting = await storage.setSetting(key, String(value));
+      const setting = await storage.setSetting(key, String(value), userId);
       res.json(setting);
     } catch (error) {
       console.error("Error setting value:", error);
@@ -494,12 +630,13 @@ Return your response as JSON in this exact format:
   // ============ JOB SCRAPING API ============
   
   // Trigger daily cron job manually
-  app.post("/api/jobs/trigger-cron", async (req, res) => {
+  app.post("/api/jobs/trigger-cron", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const { executeDailyScraping } = await import("./cron/index");
       
       // Execute the cron job logic immediately
-      const result = await executeDailyScraping();
+      const result = await executeDailyScraping(userId);
       
       if (result.success) {
         res.json({
@@ -523,24 +660,26 @@ Return your response as JSON in this exact format:
   });
   
   // Match all pending jobs against resumes
-  app.post("/api/jobs/match", async (req, res) => {
+  app.post("/api/jobs/match", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       // Import matcher (dynamic import to avoid loading issues)
       const { matchAllPendingJobs } = await import("./matcher/job-matcher");
       
       // Start matching (don't await - return immediately)
       const { activityLogger } = await import("./logger");
-      await activityLogger.info("Job matching started for all pending jobs");
+      await activityLogger.info("Job matching started for all pending jobs", undefined, userId);
       
-      matchAllPendingJobs().then(async (result) => {
+      matchAllPendingJobs(userId).then(async (result) => {
         console.log(`Job matching complete: ${result.matched} matched, ${result.failed} failed out of ${result.total} total`);
         await activityLogger.success(
           `Job matching complete: ${result.matched} matched, ${result.failed} failed`,
-          { matched: result.matched, failed: result.failed, total: result.total }
+          { matched: result.matched, failed: result.failed, total: result.total },
+          userId
         );
       }).catch(async (error) => {
         console.error("Error in background job matching:", error);
-        await activityLogger.error("Job matching failed", { error: error instanceof Error ? error.message : "Unknown error" });
+        await activityLogger.error("Job matching failed", { error: error instanceof Error ? error.message : "Unknown error" }, userId);
       });
       
       // Return immediately
@@ -557,16 +696,17 @@ Return your response as JSON in this exact format:
   });
 
   // Trigger job scraping
-  app.post("/api/jobs/sync", async (req, res) => {
+  app.post("/api/jobs/sync", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       // Get search parameters from settings (matching JSearch API format)
-      const jobTitlesSetting = await storage.getSetting("job_titles");
-      const countryCodesSetting = await storage.getSetting("country_codes");
-      const datePostedSetting = await storage.getSetting("date_posted");
-      const excludedKeywordsSetting = await storage.getSetting("excluded_keywords");
-      const linkedInTimePeriodSetting = await storage.getSetting("linkedin_time_period");
-      const linkedInLocationFilterSetting = await storage.getSetting("linkedin_location_filter");
-      const jobSearchProviderPreferenceSetting = await storage.getSetting("job_search_provider_preference");
+      const jobTitlesSetting = await storage.getSetting("job_titles", userId);
+      const countryCodesSetting = await storage.getSetting("country_codes", userId);
+      const datePostedSetting = await storage.getSetting("date_posted", userId);
+      const excludedKeywordsSetting = await storage.getSetting("excluded_keywords", userId);
+      const linkedInTimePeriodSetting = await storage.getSetting("linkedin_time_period", userId);
+      const linkedInLocationFilterSetting = await storage.getSetting("linkedin_location_filter", userId);
+      const jobSearchProviderPreferenceSetting = await storage.getSetting("job_search_provider_preference", userId);
       
       if (!jobTitlesSetting) {
         return res.status(400).json({ 
@@ -626,7 +766,7 @@ Return your response as JSON in this exact format:
         countryCode,
         datePosted,
         linkedInTimePeriod
-      });
+      }, userId);
       
       scrapeJobs({
         jobTitles,
@@ -636,6 +776,7 @@ Return your response as JSON in this exact format:
         locationFilter: linkedInLocationFilter,
         linkedInTimePeriod,
         jobSearchProviderPreference,
+        userId, // Pass userId to scraper
       }).then(async (results) => {
         const totalFound = results.reduce((sum, r) => sum + r.jobsFound, 0);
         const totalAdded = results.reduce((sum, r) => sum + r.jobsAdded, 0);
@@ -643,11 +784,12 @@ Return your response as JSON in this exact format:
         
         await activityLogger.success(
           `Job scraping complete: ${totalAdded} new jobs added from ${totalFound} found`, 
-          { results }
+          { results },
+          userId
         );
       }).catch(async (error) => {
         console.error("Error in background scraping:", error);
-        await activityLogger.error("Job scraping failed", { error: error instanceof Error ? error.message : "Unknown error" });
+        await activityLogger.error("Job scraping failed", { error: error instanceof Error ? error.message : "Unknown error" }, userId);
       });
       
       // Return immediately
@@ -668,25 +810,73 @@ Return your response as JSON in this exact format:
 
   // ============ ACTIVITY LOGS API ============
   
-  // Get activity logs
-  app.get("/api/activity", async (req, res) => {
+  // Get activity logs (user-specific, or all if admin)
+  app.get("/api/activity", requireAuth, async (req, res) => {
     try {
+      const user = getUserFromRequest(req);
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      const logs = await storage.getActivityLogs(limit);
-      res.json(logs);
+      
+      // If user is admin, get all logs; otherwise get only their logs
+      let logs;
+      if (isAdmin(user)) {
+        logs = await storage.getAllActivityLogs(limit);
+      } else {
+        const userId = getUserIdFromRequest(req);
+        logs = await storage.getActivityLogs(userId, limit);
+      }
+      
+      // If admin, enrich logs with user information
+      if (isAdmin(user) && logs.length > 0) {
+        const userIds = [...new Set(logs.map(log => log.userId))];
+        const usersMap = new Map();
+        
+        // Fetch user info for all unique user IDs
+        for (const uid of userIds) {
+          const userInfo = await storage.getUser(uid);
+          if (userInfo) {
+            usersMap.set(uid, { id: userInfo.id, username: userInfo.username });
+          }
+        }
+        
+        // Add user info to each log
+        const enrichedLogs = logs.map(log => ({
+          ...log,
+          user: usersMap.get(log.userId) || { id: log.userId, username: "Unknown" },
+        }));
+        
+        res.json(enrichedLogs);
+      } else {
+        res.json(logs);
+      }
     } catch (error) {
       console.error("Error fetching activity logs:", error);
       res.status(500).json({ error: "Failed to fetch activity logs" });
     }
   });
 
+  // ============ ADMIN API ============
+  
+  // Get all users (admin only)
+  app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      // Don't send password hashes to frontend
+      const safeUsers = users.map(({ password, ...user }) => user);
+      res.json(safeUsers);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
   // ============ API USAGE API ============
   
   // Get API usage statistics
-  app.get("/api/usage", async (req, res) => {
+  app.get("/api/usage", requireAuth, async (req, res) => {
     try {
+      const userId = getUserIdFromRequest(req);
       const { getAPIUsage } = await import("./api-usage");
-      const usage = await getAPIUsage();
+      const usage = await getAPIUsage(userId);
       res.json(usage);
     } catch (error) {
       console.error("Error fetching API usage:", error);
@@ -694,13 +884,44 @@ Return your response as JSON in this exact format:
     }
   });
 
+  // Check if required settings are configured
+  app.get("/api/settings/check-required", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      
+      const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
+      const geminiKey = await storage.getSetting("gemini_api_key", userId);
+      const discordWebhook = await storage.getSetting("discord_webhook", userId);
+      
+      const missing: string[] = [];
+      if (!perplexityKey?.value && !geminiKey?.value) {
+        missing.push("At least one AI API key (Perplexity or Gemini)");
+      }
+      if (!discordWebhook?.value) {
+        missing.push("Discord webhook URL");
+      }
+      
+      res.json({
+        configured: missing.length === 0,
+        missing,
+        hasPerplexity: !!perplexityKey?.value,
+        hasGemini: !!geminiKey?.value,
+        hasDiscord: !!discordWebhook?.value,
+      });
+    } catch (error) {
+      console.error("Error checking required settings:", error);
+      res.status(500).json({ error: "Failed to check required settings" });
+    }
+  });
+
   // ============ STATS API ============
   
   // Get dashboard statistics
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", requireAuth, async (req, res) => {
     try {
-      const jobs = await storage.getJobs();
-      const resumes = await storage.getResumes();
+      const userId = getUserIdFromRequest(req);
+      const jobs = await storage.getJobs(userId);
+      const resumes = await storage.getResumes(userId);
       
       // Calculate stats
       const totalJobs = jobs.length;
@@ -769,6 +990,74 @@ Return your response as JSON in this exact format:
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // Reschedule cron job (called when cron settings change)
+  app.post("/api/cron/reschedule", async (req, res) => {
+    try {
+      const { rescheduleDailyScraping } = await import("./cron/index");
+      await rescheduleDailyScraping();
+      res.json({ 
+        success: true, 
+        message: "Cron job rescheduled successfully" 
+      });
+    } catch (error) {
+      console.error("Error rescheduling cron job:", error);
+      res.status(500).json({ 
+        success: false,
+        error: "Failed to reschedule cron job",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Test Discord webhook
+  app.post("/api/discord/test", async (req, res) => {
+    // Ensure we always send a JSON response
+    res.setHeader("Content-Type", "application/json");
+    
+    try {
+      console.log("[Discord Test] Route hit - Starting Discord webhook test...");
+      const { sendTestNotification } = await import("./discord");
+      
+      try {
+        const success = await sendTestNotification();
+        
+        if (success) {
+          console.log("[Discord Test] Success - notification sent");
+          res.json({ 
+            success: true, 
+            message: "Discord webhook test notification sent successfully!" 
+          });
+          return;
+        } else {
+          console.log("[Discord Test] Failed - sendTestNotification returned false");
+          res.status(400).json({ 
+            success: false, 
+            error: "Failed to send Discord notification. Check your webhook URL and notification settings." 
+          });
+          return;
+        }
+      } catch (discordError) {
+        console.error("[Discord Test] Error in sendTestNotification:", discordError);
+        const errorMessage = discordError instanceof Error ? discordError.message : "Unknown error";
+        res.status(400).json({ 
+          success: false,
+          error: errorMessage,
+          message: errorMessage
+        });
+        return;
+      }
+    } catch (error) {
+      console.error("[Discord Test] Unexpected error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ 
+        success: false,
+        error: errorMessage,
+        message: `Failed to test Discord webhook: ${errorMessage}`
+      });
+      return;
     }
   });
 

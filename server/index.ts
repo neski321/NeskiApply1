@@ -2,9 +2,12 @@
 import "dotenv/config";
 
 import express, { type Request, Response, NextFunction } from "express";
+import passport from "passport";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { configureSession } from "./auth/session";
+import { configurePassport } from "./auth/passport";
 
 const app = express();
 const httpServer = createServer(app);
@@ -24,6 +27,14 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Configure and use session middleware (must be before passport)
+app.use(configureSession());
+
+// Configure and initialize Passport
+configurePassport();
+app.use(passport.initialize());
+app.use(passport.session());
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -123,7 +134,7 @@ app.use((req, res, next) => {
 
   // Setup daily job scraping cron job
   const { setupDailyScraping } = await import("./cron/index");
-  setupDailyScraping();
+  await setupDailyScraping();
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route

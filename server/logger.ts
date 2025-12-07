@@ -9,9 +9,15 @@ export type ActivityLogType = "success" | "info" | "warning" | "error";
 export async function logActivity(
   type: ActivityLogType,
   message: string,
-  metadata?: Record<string, any>
+  metadata?: Record<string, any>,
+  userId?: string
 ): Promise<void> {
   try {
+    if (!userId) {
+      console.warn(`[Activity Log] Skipping log without userId: ${message}`);
+      return;
+    }
+    
     // Convert metadata to proper format (null if undefined or empty object)
     const metadataValue = metadata && Object.keys(metadata).length > 0 ? metadata : null;
     
@@ -19,7 +25,7 @@ export async function logActivity(
       type,
       message,
       metadata: metadataValue,
-    });
+    }, userId);
   } catch (error) {
     // Don't throw - logging should never break the app
     console.error("Failed to log activity:", error);
@@ -32,14 +38,14 @@ export async function logActivity(
  * Convenience functions for different log types
  */
 export const activityLogger = {
-  success: (message: string, metadata?: Record<string, any>) => 
-    logActivity("success", message, metadata),
-  info: (message: string, metadata?: Record<string, any>) => 
-    logActivity("info", message, metadata),
-  warning: (message: string, metadata?: Record<string, any>) => 
-    logActivity("warning", message, metadata),
-  error: (message: string, metadata?: Record<string, any>) => 
-    logActivity("error", message, metadata),
+  success: (message: string, metadata?: Record<string, any>, userId?: string) => 
+    logActivity("success", message, metadata, userId),
+  info: (message: string, metadata?: Record<string, any>, userId?: string) => 
+    logActivity("info", message, metadata, userId),
+  warning: (message: string, metadata?: Record<string, any>, userId?: string) => 
+    logActivity("warning", message, metadata, userId),
+  error: (message: string, metadata?: Record<string, any>, userId?: string) => 
+    logActivity("error", message, metadata, userId),
 };
 
 

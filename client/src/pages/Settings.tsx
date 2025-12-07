@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,10 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Check, Play } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Save, Check, Play, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, setSetting, triggerCronJob } from "@/lib/api";
+import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 // TEMPORARILY DISABLED: ActiveJobsDB API is not working
@@ -18,7 +20,16 @@ const ACTIVEJOBSDB_ENABLED = false;
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location] = useLocation();
   const [isSaving, setIsSaving] = useState(false);
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [requiredSettingsStatus, setRequiredSettingsStatus] = useState<{
+    configured: boolean;
+    missing: string[];
+    hasPerplexity: boolean;
+    hasGemini: boolean;
+    hasDiscord: boolean;
+  } | null>(null);
   
   const [formData, setFormData] = useState({
     jobTitles: "",
@@ -30,6 +41,10 @@ export default function Settings() {
     autoApplyEnabled: false,
     autoApplyThreshold: "85",
     discordNotifications: true,
+    discordNotificationThreshold: "70",
+    cronEnabled: false,
+    cronScheduleTime: "09:00",
+    cronTimezone: "America/Toronto",
     headlessMode: true,
     aiProviderPreference: "auto",
     jobSearchProviderPreference: "auto",
@@ -48,6 +63,26 @@ export default function Settings() {
     queryKey: ["settings"],
     queryFn: getSettings,
   });
+
+  // Check if this is an onboarding flow
+  useEffect(() => {
+    const params = new URLSearchParams(location.split("?")[1]);
+    setIsOnboarding(params.get("onboarding") === "true");
+  }, [location]);
+
+  // Check required settings status
+  const { data: requiredSettings } = useQuery({
+    queryKey: ["requiredSettings"],
+    queryFn: checkRequiredSettings,
+    refetchInterval: 5000, // Check every 5 seconds when on onboarding
+    enabled: isOnboarding || requiredSettingsStatus?.configured === false,
+  });
+
+  useEffect(() => {
+    if (requiredSettings) {
+      setRequiredSettingsStatus(requiredSettings);
+    }
+  }, [requiredSettings]);
 
   useEffect(() => {
     if (settings.length > 0) {
@@ -105,6 +140,10 @@ export default function Settings() {
         autoApplyEnabled: settingsMap.auto_apply_enabled === "true",
         autoApplyThreshold: settingsMap.auto_apply_threshold || "85",
         discordNotifications: settingsMap.discord_notifications === "true",
+        discordNotificationThreshold: settingsMap.discord_notification_threshold || "70",
+        cronEnabled: settingsMap.cron_enabled === "true",
+        cronScheduleTime: settingsMap.cron_schedule_time || "09:00",
+        cronTimezone: settingsMap.cron_timezone || "America/Toronto",
         headlessMode: settingsMap.headless_mode === "true",
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
         jobSearchProviderPreference: jobSearchProviderPreference,
@@ -163,6 +202,25 @@ export default function Settings() {
     },
   });
 
+  const discordTestMutation = useMutation({
+    mutationFn: testDiscordWebhook,
+    onSuccess: (data) => {
+      toast({
+        title: "Discord Webhook Test",
+        description: data.message || "Test notification sent successfully!",
+        variant: "default",
+        className: "border-emerald-500/50 text-emerald-500",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Discord Webhook Test Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSave = async () => {
     setIsSaving(true);
     
@@ -176,6 +234,10 @@ export default function Settings() {
       auto_apply_enabled: formData.autoApplyEnabled.toString(),
       auto_apply_threshold: formData.autoApplyThreshold,
       discord_notifications: formData.discordNotifications.toString(),
+      discord_notification_threshold: formData.discordNotificationThreshold,
+      cron_enabled: formData.cronEnabled.toString(),
+      cron_schedule_time: formData.cronScheduleTime,
+      cron_timezone: formData.cronTimezone,
       headless_mode: formData.headlessMode.toString(),
       ai_provider_preference: formData.aiProviderPreference,
       job_search_provider_preference: formData.jobSearchProviderPreference,
@@ -191,6 +253,20 @@ export default function Settings() {
     };
 
     await saveMutation.mutateAsync(settingsToSave);
+    
+    // Reschedule cron job if schedule settings changed
+    try {
+      await rescheduleCronJob();
+    } catch (error) {
+      console.error("Failed to reschedule cron job:", error);
+      // Don't fail the save if cron reschedule fails
+    }
+    
+    // Refresh required settings status after saving
+    if (isOnboarding) {
+      queryClient.invalidateQueries({ queryKey: ["requiredSettings"] });
+    }
+    
     setIsSaving(false);
   };
 
@@ -513,36 +589,68 @@ export default function Settings() {
                   <Label className="flex items-center gap-2">
                     Perplexity API Key
                     <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Primary for ATS Analysis</span>
+                    {isOnboarding && !requiredSettingsStatus?.hasPerplexity && !requiredSettingsStatus?.hasGemini && (
+                      <span className="text-[10px] font-normal text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Missing</span>
+                    )}
                   </Label>
                   <Input 
                     type="password" 
-                    placeholder="........................" 
+                    placeholder="Enter your Perplexity API key" 
                     value={formData.perplexityApiKey}
                     onChange={(e) => setFormData({ ...formData, perplexityApiKey: e.target.value })}
+                    className={isOnboarding && !requiredSettingsStatus?.hasPerplexity && !requiredSettingsStatus?.hasGemini ? "border-amber-500 focus:border-amber-500" : ""}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Primary AI service for analyzing resumes against job descriptions. Used when preference is "Auto" or "Perplexity Only".
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Primary AI service for analyzing resumes against job descriptions. Used when preference is "Auto" or "Perplexity Only".
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>How to get your API key:</strong> Visit{" "}
+                      <a 
+                        href="https://www.perplexity.ai/settings/api" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-primary underline hover:text-primary/80"
+                      >
+                        Perplexity API Settings
+                      </a>
+                      {" "}and create a new API key. Free tier includes 5 requests per minute and 200 requests per day.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
                     Gemini API Key (Backup)
                     <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Fallback for ATS Analysis</span>
+                    {isOnboarding && !requiredSettingsStatus?.hasPerplexity && !requiredSettingsStatus?.hasGemini && (
+                      <span className="text-[10px] font-normal text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Required if no Perplexity</span>
+                    )}
                   </Label>
                   <Input 
                     type="password" 
-                    placeholder="........................" 
+                    placeholder="Enter your Gemini API key" 
                     value={formData.geminiApiKey}
                     onChange={(e) => setFormData({ ...formData, geminiApiKey: e.target.value })}
+                    className={isOnboarding && !requiredSettingsStatus?.hasPerplexity && !requiredSettingsStatus?.hasGemini ? "border-amber-500 focus:border-amber-500" : ""}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Backup AI service used when Perplexity is unavailable or when preference is "Gemini Only". Get your API key from{" "}
-                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                      Google AI Studio
-                    </a>
-                    .
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Backup AI service used when Perplexity is unavailable or when preference is "Gemini Only".
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      <strong>How to get your API key:</strong> Visit{" "}
+                      <a 
+                        href="https://aistudio.google.com/app/apikey" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-primary underline hover:text-primary/80"
+                      >
+                        Google AI Studio
+                      </a>
+                      {" "}and click "Create API Key". Free tier includes generous usage limits. You'll need a Google account to access.
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -644,41 +752,28 @@ export default function Settings() {
           <TabsContent value="automation" className="space-y-6 mt-6">
             <Card className="bg-card/50 border-border/50">
               <CardHeader>
-                <CardTitle>Automation & Notifications</CardTitle>
-                <CardDescription>Set thresholds for auto-applying and notifications.</CardDescription>
+                <CardTitle>Notifications</CardTitle>
+                <CardDescription>Configure Discord notifications for job matches. Adjust the threshold to control when you receive notifications.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="text-base">Enable Auto-Apply</Label>
+                  <div className="space-y-0.5 flex-1">
+                    <Label className="text-base">Notification Threshold</Label>
                     <p className="text-sm text-muted-foreground">
-                      Automatically submit applications for high-match jobs
-                    </p>
-                  </div>
-                  <Switch 
-                    checked={formData.autoApplyEnabled}
-                    onCheckedChange={(checked) => setFormData({ ...formData, autoApplyEnabled: checked })}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="text-base">Auto-Apply Threshold</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Automatically submit applications for matches above this percentage
+                      Discord notifications will be sent for jobs with match scores at or above this percentage
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                     <Input
-                       type="number"
-                       className="w-20 h-9"
-                       min="0"
-                       max="100"
-                       value={formData.autoApplyThreshold}
-                       onChange={(e) => setFormData({ ...formData, autoApplyThreshold: e.target.value })}
-                       disabled={!formData.autoApplyEnabled}
-                     />
-                     <span className="font-mono font-bold text-primary">%</span>
+                    <Input
+                      type="number"
+                      className="w-20 h-9"
+                      min="0"
+                      max="100"
+                      value={formData.discordNotificationThreshold}
+                      onChange={(e) => setFormData({ ...formData, discordNotificationThreshold: e.target.value })}
+                      disabled={!formData.discordNotifications}
+                    />
+                    <span className="font-mono font-bold text-primary">%</span>
                   </div>
                 </div>
                 
@@ -686,7 +781,7 @@ export default function Settings() {
                   <div className="space-y-0.5">
                     <Label className="text-base">Discord Notifications</Label>
                     <p className="text-sm text-muted-foreground">
-                      Send webhook alerts for new high-quality matches
+                      Enable Discord webhook notifications for jobs matching the threshold above
                     </p>
                   </div>
                   <Switch 
@@ -694,7 +789,102 @@ export default function Settings() {
                     onCheckedChange={(checked) => setFormData({ ...formData, discordNotifications: checked })}
                   />
                 </div>
+              </CardContent>
+            </Card>
 
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Automatic Job Scraping Schedule</CardTitle>
+                <CardDescription>
+                  Configure when the automatic daily job scraping runs. The server must be running for scheduled jobs to execute.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-border/50">
+                  <div className="space-y-0.5 flex-1">
+                    <Label className="text-base">Enable Automatic Scraping</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Turn on automatic daily job scraping at your scheduled time. You must activate this for scheduled jobs to run.
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.cronEnabled}
+                    onCheckedChange={(checked) => setFormData({ ...formData, cronEnabled: checked })}
+                  />
+                </div>
+
+                {!formData.cronEnabled && (
+                  <div className="p-4 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                    <p className="text-sm text-amber-500">
+                      <strong>Automatic scraping is disabled.</strong> Enable the toggle above to activate scheduled job scraping. 
+                      You can still trigger manual scraping using the "Run Cron Job Now" button.
+                    </p>
+                  </div>
+                )}
+
+                <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Note:</strong> The cron job runs on the server, so your server process must be running continuously for scheduled jobs to execute. 
+                    If you close the server, scheduled jobs will not run until you restart it. The system checks every 15 minutes to see if it's time to run your scheduled job.
+                  </p>
+                </div>
+
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!formData.cronEnabled ? "opacity-50 pointer-events-none" : ""}`}>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Schedule Time
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">24-hour format</span>
+                    </Label>
+                    <Input 
+                      type="time"
+                      value={formData.cronScheduleTime}
+                      onChange={(e) => setFormData({ ...formData, cronScheduleTime: e.target.value })}
+                      className="font-mono"
+                      disabled={!formData.cronEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Time when daily job scraping runs (24-hour format, e.g., 09:00 for 9:00 AM)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Timezone
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Required</span>
+                    </Label>
+                    <select
+                      value={formData.cronTimezone}
+                      onChange={(e) => setFormData({ ...formData, cronTimezone: e.target.value })}
+                      disabled={!formData.cronEnabled}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="America/Toronto">Eastern Time (America/Toronto)</option>
+                      <option value="America/New_York">Eastern Time (America/New_York)</option>
+                      <option value="America/Chicago">Central Time (America/Chicago)</option>
+                      <option value="America/Denver">Mountain Time (America/Denver)</option>
+                      <option value="America/Los_Angeles">Pacific Time (America/Los_Angeles)</option>
+                      <option value="America/Vancouver">Pacific Time (America/Vancouver)</option>
+                      <option value="Europe/London">London (GMT/BST)</option>
+                      <option value="Europe/Paris">Paris (CET/CEST)</option>
+                      <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                      <option value="Asia/Tokyo">Tokyo (JST)</option>
+                      <option value="Asia/Shanghai">Shanghai (CST)</option>
+                      <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+                      <option value="UTC">UTC</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Timezone for the scheduled time
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Other Settings</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label className="text-base">Headless Browser Mode</Label>
@@ -710,16 +900,49 @@ export default function Settings() {
 
                 <div className="pt-4 border-t border-border/50">
                   <div className="space-y-2">
-                    <Label>Discord Webhook URL</Label>
-                    <Input 
-                      type="password" 
-                      placeholder="https://discord.com/api/webhooks/..." 
-                      value={formData.discordWebhook}
-                      onChange={(e) => setFormData({ ...formData, discordWebhook: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Discord webhook URL for notifications. Get your webhook URL from Discord Server Settings → Integrations → Webhooks.
-                    </p>
+                    <Label className="flex items-center gap-2">
+                      Discord Webhook URL
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Required</span>
+                      {isOnboarding && !requiredSettingsStatus?.hasDiscord && (
+                        <span className="text-[10px] font-normal text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Missing</span>
+                      )}
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        type="password" 
+                        placeholder="https://discord.com/api/webhooks/..." 
+                        value={formData.discordWebhook}
+                        onChange={(e) => setFormData({ ...formData, discordWebhook: e.target.value })}
+                        className={`flex-1 ${isOnboarding && !requiredSettingsStatus?.hasDiscord ? "border-amber-500 focus:border-amber-500" : ""}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => discordTestMutation.mutate()}
+                        disabled={discordTestMutation.isPending || !formData.discordWebhook}
+                      >
+                        {discordTestMutation.isPending ? "Testing..." : "Test"}
+                      </Button>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        Discord webhook URL for receiving job match notifications. You'll receive notifications when jobs match your resume with a score above your threshold.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>How to get your webhook URL:</strong>
+                      </p>
+                      <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1 ml-2">
+                        <li>Open your Discord server (or create a new one)</li>
+                        <li>Go to <strong>Server Settings</strong> → <strong>Integrations</strong> → <strong>Webhooks</strong></li>
+                        <li>Click <strong>"New Webhook"</strong> or <strong>"Create Webhook"</strong></li>
+                        <li>Give it a name (e.g., "Job Notifications") and select a channel</li>
+                        <li>Click <strong>"Copy Webhook URL"</strong> and paste it here</li>
+                        <li>Click <strong>"Test"</strong> to verify it's working</li>
+                      </ol>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        <strong>Note:</strong> You need to be a server administrator or have "Manage Webhooks" permission to create webhooks.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </CardContent>

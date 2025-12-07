@@ -7,6 +7,7 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  role: text("role").notNull().default("user"), // "user" or "admin"
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -20,6 +21,7 @@ export type User = typeof users.$inferSelect;
 // Resumes table
 export const resumes = pgTable("resumes", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   fileName: text("file_name").notNull(),
   skills: text("skills").array().notNull(),
@@ -42,7 +44,8 @@ export type Resume = typeof resumes.$inferSelect;
 // Jobs table
 export const jobs = pgTable("jobs", {
   id: serial("id").primaryKey(),
-  externalId: text("external_id").unique(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  externalId: text("external_id"), // Remove unique constraint, will be unique per user
   title: text("title").notNull(),
   company: text("company").notNull(),
   location: text("location").notNull(),
@@ -71,6 +74,7 @@ export type Job = typeof jobs.$inferSelect;
 // ATS Analysis Results
 export const atsAnalyses = pgTable("ats_analyses", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   jobTitle: text("job_title").notNull(),
   jobCompany: text("job_company"),
   jobDescription: text("job_description").notNull(),
@@ -93,7 +97,8 @@ export type ATSAnalysis = typeof atsAnalyses.$inferSelect;
 // Settings table
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
-  key: text("key").notNull().unique(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
   value: text("value").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -109,6 +114,7 @@ export type Setting = typeof settings.$inferSelect;
 // Activity Logs table
 export const activityLogs = pgTable("activity_logs", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   type: text("type").notNull(), // "success", "info", "warning", "error"
   message: text("message").notNull(),
   metadata: jsonb("metadata"), // Additional data (job ID, resume ID, etc.)
