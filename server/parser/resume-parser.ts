@@ -1,11 +1,26 @@
 import { readFile } from "fs/promises";
 import path from "path";
-import { createRequire } from "module";
 
-// Use createRequire for CommonJS modules in ESM
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
-const mammoth = require("mammoth");
+// Dynamic imports for CommonJS modules (works in both ESM and CJS)
+let pdfParse: any;
+let mammoth: any;
+
+// Lazy load modules to avoid issues with import.meta.url in CJS
+async function loadPdfParse() {
+  if (!pdfParse) {
+    const pdfParseModule = await import("pdf-parse");
+    // pdf-parse is a CommonJS module, it may export default or be the default export
+    pdfParse = pdfParseModule.default || pdfParseModule;
+  }
+  return pdfParse;
+}
+
+async function loadMammoth() {
+  if (!mammoth) {
+    mammoth = await import("mammoth");
+  }
+  return mammoth;
+}
 
 export interface ParsedResume {
   rawContent: string;
@@ -19,8 +34,9 @@ export interface ParsedResume {
  */
 export async function parsePDF(filePath: string): Promise<string> {
   try {
+    const pdfParseModule = await loadPdfParse();
     const dataBuffer = await readFile(filePath);
-    const data = await pdfParse(dataBuffer);
+    const data = await pdfParseModule(dataBuffer);
     return data.text;
   } catch (error) {
     throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -32,7 +48,8 @@ export async function parsePDF(filePath: string): Promise<string> {
  */
 export async function parseDOCX(filePath: string): Promise<string> {
   try {
-    const result = await mammoth.extractRawText({ path: filePath });
+    const mammothModule = await loadMammoth();
+    const result = await mammothModule.extractRawText({ path: filePath });
     return result.value;
   } catch (error) {
     throw new Error(`Failed to parse DOCX: ${error instanceof Error ? error.message : "Unknown error"}`);
