@@ -34,7 +34,11 @@ interface LinkedInJob {
 
 interface LinkedInResponse {
   data?: LinkedInJob[];
+  results?: LinkedInJob[];
+  jobs?: LinkedInJob[];
   total_results?: number;
+  total?: number;
+  count?: number;
   [key: string]: any;
 }
 
@@ -80,8 +84,8 @@ export async function scrapeLinkedIn(
   const host = rapidApiHost || "active-jobs-db.p.rapidapi.com";
   
   // Build common query parameters
-  // API requires title_filter to be quoted for phrases: "Data Engineer"
-  // Location filter can use OR: "United States" OR "United Kingdom"
+  // Matching the working example: title_filter should NOT be quoted
+  // Example: title_filter=IT%20* (not "IT *")
   const buildParams = (title: string) => {
     const params = new URLSearchParams();
     
@@ -91,18 +95,13 @@ export async function scrapeLinkedIn(
     params.append("limit", apiLimit.toString());
     params.append("offset", "0");
     
-    // Title filter: Quote the title for proper phrase matching
-    // Format: "Data Engineer" (will be URL encoded automatically)
-    const quotedTitle = `"${title}"`;
-    params.append("title_filter", quotedTitle);
+    // Title filter: DO NOT quote - match working example format
+    // Working example: title_filter=IT%20* (unquoted, URL encoded)
+    // URLSearchParams will automatically encode spaces and special chars
+    params.append("title_filter", title);
     
-    // Location filter: Use provided locationFilter
-    // Simple locations like "Toronto" don't need quotes
-    // Multi-word locations or OR syntax should be formatted: "United States" OR "United Kingdom"
+    // Location filter: Use provided locationFilter (unquoted, as in working example)
     if (locationFilter) {
-      // If locationFilter contains " OR " or spaces, it might need quotes
-      // But for simple single-word locations like "Toronto", don't quote
-      // The API handles both quoted and unquoted locations
       params.append("location_filter", locationFilter);
     }
     
@@ -170,18 +169,23 @@ export async function scrapeLinkedIn(
           
           const result = await response.text();
           console.log(`[ActiveJobsDB 24h] Raw response length: ${result.length} chars`);
+          console.log(`[ActiveJobsDB 24h] Raw response preview (first 1000 chars):`, result.substring(0, 1000));
           
           let parsedResponse: LinkedInResponse;
           try {
             parsedResponse = JSON.parse(result) as LinkedInResponse;
+            console.log(`[ActiveJobsDB 24h] Parsed response keys:`, Object.keys(parsedResponse));
+            console.log(`[ActiveJobsDB 24h] Full parsed response structure:`, JSON.stringify(parsedResponse, null, 2).substring(0, 2000));
           } catch (parseError) {
             console.error(`[ActiveJobsDB 24h] JSON parse error:`, parseError);
             console.error(`[ActiveJobsDB 24h] Response preview:`, result.substring(0, 500));
             throw new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : "Unknown error"}`);
           }
           
-          const jobList = parsedResponse?.data || [];
+          // Check multiple possible response structures
+          const jobList = parsedResponse?.data || parsedResponse?.results || parsedResponse?.jobs || (Array.isArray(parsedResponse) ? parsedResponse : []);
           console.log(`[ActiveJobsDB 24h] Parsed response - data array length: ${jobList.length}, total_results: ${parsedResponse?.total_results || "N/A"}`);
+          console.log(`[ActiveJobsDB 24h] Response structure check - data: ${parsedResponse?.data?.length || 0}, results: ${parsedResponse?.results?.length || 0}, jobs: ${parsedResponse?.jobs?.length || 0}, isArray: ${Array.isArray(parsedResponse)}`);
           
           if (Array.isArray(jobList)) {
             console.log(`[ActiveJobsDB 24h] Received ${jobList.length} jobs for "${title}"`);
@@ -234,18 +238,23 @@ export async function scrapeLinkedIn(
           
           const result = await response.text();
           console.log(`[ActiveJobsDB 7d] Raw response length: ${result.length} chars`);
+          console.log(`[ActiveJobsDB 7d] Raw response preview (first 1000 chars):`, result.substring(0, 1000));
           
           let parsedResponse: LinkedInResponse;
           try {
             parsedResponse = JSON.parse(result) as LinkedInResponse;
+            console.log(`[ActiveJobsDB 7d] Parsed response keys:`, Object.keys(parsedResponse));
+            console.log(`[ActiveJobsDB 7d] Full parsed response structure:`, JSON.stringify(parsedResponse, null, 2).substring(0, 2000));
           } catch (parseError) {
             console.error(`[ActiveJobsDB 7d] JSON parse error:`, parseError);
             console.error(`[ActiveJobsDB 7d] Response preview:`, result.substring(0, 500));
             throw new Error(`Failed to parse JSON response: ${parseError instanceof Error ? parseError.message : "Unknown error"}`);
           }
           
-          const jobList = parsedResponse?.data || [];
+          // Check multiple possible response structures
+          const jobList = parsedResponse?.data || parsedResponse?.results || parsedResponse?.jobs || (Array.isArray(parsedResponse) ? parsedResponse : []);
           console.log(`[ActiveJobsDB 7d] Parsed response - data array length: ${jobList.length}, total_results: ${parsedResponse?.total_results || "N/A"}`);
+          console.log(`[ActiveJobsDB 7d] Response structure check - data: ${parsedResponse?.data?.length || 0}, results: ${parsedResponse?.results?.length || 0}, jobs: ${parsedResponse?.jobs?.length || 0}, isArray: ${Array.isArray(parsedResponse)}`);
           
           if (Array.isArray(jobList)) {
             console.log(`[ActiveJobsDB 7d] Received ${jobList.length} jobs for "${title}"`);

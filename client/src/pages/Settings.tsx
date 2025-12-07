@@ -12,6 +12,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSettings, setSetting, triggerCronJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
+// TEMPORARILY DISABLED: ActiveJobsDB API is not working
+const ACTIVEJOBSDB_ENABLED = false;
+
 export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -86,6 +89,12 @@ export default function Settings() {
       // Use first country code if multiple provided (JSearch uses single country)
       const primaryCountryCode = countryCodes ? countryCodes.split(",")[0].trim().toUpperCase() : "CA";
       
+      // Reset job search provider preference if ActiveJobsDB is disabled and preference is set to "linkedin"
+      let jobSearchProviderPreference = settingsMap.job_search_provider_preference || "auto";
+      if (!ACTIVEJOBSDB_ENABLED && jobSearchProviderPreference === "linkedin") {
+        jobSearchProviderPreference = "jsearch"; // Fallback to JSearch only
+      }
+      
       setFormData({
         jobTitles: settingsMap.job_titles || "Software Developer Intern, Backend Developer Co-op, Entry Level Application Developer",
         countryCode: primaryCountryCode || "CA",
@@ -98,7 +107,7 @@ export default function Settings() {
         discordNotifications: settingsMap.discord_notifications === "true",
         headlessMode: settingsMap.headless_mode === "true",
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
-        jobSearchProviderPreference: settingsMap.job_search_provider_preference || "auto",
+        jobSearchProviderPreference: jobSearchProviderPreference,
         perplexityApiKey: settingsMap.perplexity_api_key || "",
         geminiApiKey: settingsMap.gemini_api_key || "",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
@@ -243,17 +252,20 @@ export default function Settings() {
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Auto (JSearch + ActiveJobsDB)</SelectItem>
+                      <SelectItem value="auto">Auto (JSearch{ACTIVEJOBSDB_ENABLED ? " + ActiveJobsDB" : ""})</SelectItem>
                       <SelectItem value="jsearch">JSearch Only</SelectItem>
-                      <SelectItem value="linkedin">ActiveJobsDB Only</SelectItem>
+                      {ACTIVEJOBSDB_ENABLED && <SelectItem value="linkedin">ActiveJobsDB Only</SelectItem>}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {formData.jobSearchProviderPreference === "auto" 
-                      ? "Automatically uses both JSearch and ActiveJobsDB APIs to fetch jobs from multiple sources."
+                      ? `Automatically uses JSearch${ACTIVEJOBSDB_ENABLED ? " and ActiveJobsDB" : ""} APIs to fetch jobs from multiple sources.`
                       : formData.jobSearchProviderPreference === "jsearch"
                       ? "Only uses JSearch API. No ActiveJobsDB jobs will be fetched."
                       : "Only uses ActiveJobsDB API. No JSearch jobs will be fetched."}
+                    {!ACTIVEJOBSDB_ENABLED && formData.jobSearchProviderPreference === "linkedin" && (
+                      <span className="text-destructive"> ActiveJobsDB is currently disabled.</span>
+                    )}
                   </p>
                 </div>
               </CardContent>
@@ -364,6 +376,7 @@ export default function Settings() {
             </Card>
 
             {/* ActiveJobsDB API Section */}
+            {ACTIVEJOBSDB_ENABLED && (
             <Card className="bg-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>ActiveJobsDB API Parameters</CardTitle>
@@ -431,6 +444,7 @@ export default function Settings() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
             {/* Common Filters */}
             <Card className="bg-card/50 border-border/50">
@@ -579,6 +593,7 @@ export default function Settings() {
             </Card>
 
             {/* ActiveJobsDB API Section */}
+            {ACTIVEJOBSDB_ENABLED && (
             <Card className="bg-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>ActiveJobsDB API</CardTitle>
@@ -622,6 +637,7 @@ export default function Settings() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* Automation Tab */}

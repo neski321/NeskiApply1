@@ -143,8 +143,10 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
   }
 
   // Scrape from LinkedIn (ONLY if preference is "auto" or "linkedin", NOT if "jsearch")
-  const shouldUseLinkedIn = (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "linkedin") && jobSearchProviderPreference !== "jsearch";
-  console.log(`[Scraper] Should use LinkedIn: ${shouldUseLinkedIn} (preference: "${jobSearchProviderPreference}")`);
+  // TEMPORARILY DISABLED: ActiveJobsDB API is not working
+  const activeJobsDBEnabled = false; // Set to true when ActiveJobsDB is fixed
+  const shouldUseLinkedIn = activeJobsDBEnabled && (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "linkedin") && jobSearchProviderPreference !== "jsearch";
+  console.log(`[Scraper] Should use LinkedIn (ActiveJobsDB): ${shouldUseLinkedIn} (preference: "${jobSearchProviderPreference}", enabled: ${activeJobsDBEnabled})`);
   
   if (shouldUseLinkedIn && linkedInApiKey?.value) {
     try {
