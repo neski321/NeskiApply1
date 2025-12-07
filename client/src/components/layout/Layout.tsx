@@ -1,16 +1,20 @@
 import { Link, useLocation } from "wouter";
 import { NAV_ITEMS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
-import { Bot, Menu } from "lucide-react";
+import { Bot, Menu, LogOut, Shield } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { getAPIUsage } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { user, logout, isLoggingOut } = useAuth();
+  const { toast } = useToast();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Fetch API usage
@@ -19,6 +23,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
     queryFn: getAPIUsage,
     refetchInterval: 60000, // Refetch every minute
   });
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out.",
+      });
+      setLocation("/login");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to logout",
+        variant: "destructive",
+      });
+    }
+  };
 
   const NavContent = () => (
     <>
@@ -51,6 +72,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
+        {user?.role === "admin" && (
+          <Link href="/admin" onClick={() => setIsMobileOpen(false)}>
+            <div
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group cursor-pointer",
+                location === "/admin"
+                  ? "bg-sidebar-accent text-sidebar-primary-foreground shadow-[inset_2px_0_0_0_hsl(var(--primary))]"
+                  : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50"
+              )}
+            >
+              <Shield className={cn("h-4 w-4 transition-colors", location === "/admin" ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} />
+              Admin Panel
+            </div>
+          </Link>
+        )}
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
@@ -87,14 +123,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
             )}
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3 px-1">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-background">
-            JD
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-3 px-1">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-background">
+              {user?.username?.[0]?.toUpperCase() || "U"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.username || "User"}</p>
+              <p className="text-xs text-muted-foreground truncate">Logged in</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">Jane Doe</p>
-            <p className="text-xs text-muted-foreground truncate">jane@seneca.ca</p>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="w-full justify-start text-muted-foreground hover:text-destructive"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            {isLoggingOut ? "Logging out..." : "Logout"}
+          </Button>
         </div>
       </div>
     </>

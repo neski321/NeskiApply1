@@ -1,11 +1,12 @@
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CheckCircle, XCircle, Clock, Upload, Send, AlertCircle, FileText, Briefcase, Wand2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, XCircle, Clock, Upload, Send, AlertCircle, FileText, Briefcase, Wand2, User } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getActivityLogs } from "@/lib/api";
+import { getActivityLogs, type ActivityLogWithUser } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
-import type { ActivityLog } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
 
 const getIconForType = (type: string) => {
   switch (type) {
@@ -46,7 +47,10 @@ const getIconForMessage = (message: string) => {
 };
 
 export default function Activity() {
-  const { data: logs = [], isLoading } = useQuery({
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  
+  const { data: logs = [], isLoading } = useQuery<ActivityLogWithUser[]>({
     queryKey: ["activity"],
     queryFn: () => getActivityLogs(200),
     refetchInterval: 30000, // Refetch every 30 seconds
@@ -69,9 +73,23 @@ export default function Activity() {
     <Layout>
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">System Activity Log</h1>
-          <div className="text-sm text-muted-foreground">
-            {logs.length} {logs.length === 1 ? "event" : "events"} logged
+          <div>
+            <h1 className="text-2xl font-bold">Activity Log</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAdmin 
+                ? "All system activity logs - showing logs from all users" 
+                : "Your personal activity history - all logs are private to your account"}
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {isAdmin && (
+              <Badge variant="outline" className="border-primary/50 text-primary">
+                Admin View
+              </Badge>
+            )}
+            <div className="text-sm text-muted-foreground">
+              {logs.length} {logs.length === 1 ? "event" : "events"} logged
+            </div>
           </div>
         </div>
         
@@ -124,7 +142,15 @@ export default function Activity() {
                                   <Icon className="h-4 w-4" />
                                 </div>
                                 <div className="flex-1 space-y-1">
-                                  <p className="text-sm font-medium leading-none">{log.message}</p>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="text-sm font-medium leading-none">{log.message}</p>
+                                    {isAdmin && log.user && (
+                                      <Badge variant="secondary" className="text-xs font-normal gap-1">
+                                        <User className="h-3 w-3" />
+                                        {log.user.username}
+                                      </Badge>
+                                    )}
+                                  </div>
                                   <p className="text-xs text-muted-foreground font-mono">
                                     {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
                                   </p>

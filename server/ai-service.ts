@@ -18,18 +18,19 @@ export interface AICallResult {
  */
 export async function callAIWithFallback(
   messages: AIChatMessage[],
-  model: string = "sonar-pro"
+  model: string = "sonar-pro",
+  userId: string
 ): Promise<AICallResult | null> {
   // Get user preference for AI provider
-  const providerPreference = await storage.getSetting("ai_provider_preference");
+  const providerPreference = await storage.getSetting("ai_provider_preference", userId);
   const preference = providerPreference?.value || "auto"; // auto, perplexity, or gemini
 
   // If user specified a provider, use only that one
   if (preference === "perplexity") {
-    const result = await tryPerplexity(messages, model);
+    const result = await tryPerplexity(messages, model, userId);
     if (result) {
       const { logAPICall } = await import("./api-usage");
-      await logAPICall("Perplexity API", { provider: "perplexity", model });
+      await logAPICall("Perplexity API", { provider: "perplexity", model }, userId);
       return { content: result, provider: "perplexity" };
     }
     console.log("Perplexity failed but it's the preferred provider, no fallback");
@@ -37,10 +38,10 @@ export async function callAIWithFallback(
   }
 
   if (preference === "gemini") {
-    const result = await tryGemini(messages);
+    const result = await tryGemini(messages, userId);
     if (result) {
       const { logAPICall } = await import("./api-usage");
-      await logAPICall("Gemini API", { provider: "gemini", model: "gemini-2.5-flash" });
+      await logAPICall("Gemini API", { provider: "gemini", model: "gemini-2.5-flash" }, userId);
       return { content: result, provider: "gemini" };
     }
     console.log("Gemini failed but it's the preferred provider, no fallback");
@@ -48,21 +49,21 @@ export async function callAIWithFallback(
   }
 
   // Auto mode: Try Perplexity first, fallback to Gemini if it fails
-  const perplexityResult = await tryPerplexity(messages, model);
+  const perplexityResult = await tryPerplexity(messages, model, userId);
   if (perplexityResult) {
     // Log API usage
     const { logAPICall } = await import("./api-usage");
-    await logAPICall("Perplexity API", { provider: "perplexity", model });
+    await logAPICall("Perplexity API", { provider: "perplexity", model }, userId);
     return { content: perplexityResult, provider: "perplexity" };
   }
 
   // Fallback to Gemini
   console.log("Perplexity failed, falling back to Gemini...");
-  const geminiResult = await tryGemini(messages);
+  const geminiResult = await tryGemini(messages, userId);
   if (geminiResult) {
     // Log API usage
     const { logAPICall } = await import("./api-usage");
-    await logAPICall("Gemini API", { provider: "gemini", model: "gemini-2.5-flash" });
+    await logAPICall("Gemini API", { provider: "gemini", model: "gemini-2.5-flash" }, userId);
     return { content: geminiResult, provider: "gemini" };
   }
 
@@ -74,10 +75,11 @@ export async function callAIWithFallback(
  */
 async function tryPerplexity(
   messages: AIChatMessage[],
-  model: string = "sonar-pro"
+  model: string = "sonar-pro",
+  userId: string
 ): Promise<string | null> {
   try {
-    const apiKeySetting = await storage.getSetting("perplexity_api_key");
+    const apiKeySetting = await storage.getSetting("perplexity_api_key", userId);
     
     if (!apiKeySetting || !apiKeySetting.value) {
       console.log("Perplexity API key not configured");
@@ -140,9 +142,9 @@ async function tryPerplexity(
 /**
  * Try calling Gemini API
  */
-async function tryGemini(messages: AIChatMessage[]): Promise<string | null> {
+async function tryGemini(messages: AIChatMessage[], userId: string): Promise<string | null> {
   try {
-    const apiKeySetting = await storage.getSetting("gemini_api_key");
+    const apiKeySetting = await storage.getSetting("gemini_api_key", userId);
     
     if (!apiKeySetting || !apiKeySetting.value) {
       console.log("Gemini API key not configured");

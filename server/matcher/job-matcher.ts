@@ -13,10 +13,10 @@ export interface MatchResult {
 /**
  * Match a job against all resumes using Perplexity API
  */
-export async function matchJobAgainstResumes(job: Job): Promise<MatchResult | null> {
+export async function matchJobAgainstResumes(job: Job, userId: string): Promise<MatchResult | null> {
   try {
-    // Get all resumes
-    const resumes = await storage.getResumes();
+    // Get all resumes for this user
+    const resumes = await storage.getResumes(userId);
     
     if (resumes.length === 0) {
       console.log("No resumes found, skipping job matching");
@@ -24,8 +24,8 @@ export async function matchJobAgainstResumes(job: Job): Promise<MatchResult | nu
     }
 
     // Check if at least one AI API key is configured
-    const perplexityKey = await storage.getSetting("perplexity_api_key");
-    const geminiKey = await storage.getSetting("gemini_api_key");
+    const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
+    const geminiKey = await storage.getSetting("gemini_api_key", userId);
     
     if ((!perplexityKey || !perplexityKey.value) && (!geminiKey || !geminiKey.value)) {
       console.log("Neither Perplexity nor Gemini API key configured, skipping job matching");
@@ -72,7 +72,7 @@ Return your response as JSON in this exact format:
     ];
 
     // Call AI with fallback (Perplexity first, then Gemini)
-    const aiResult = await callAIWithFallback(messages, "sonar-pro");
+    const aiResult = await callAIWithFallback(messages, "sonar-pro", userId);
     
     if (!aiResult) {
       console.error("No response from AI service (Perplexity or Gemini)");
@@ -105,15 +105,15 @@ Return your response as JSON in this exact format:
 /**
  * Match a single job and update it in the database
  */
-export async function matchAndUpdateJob(jobId: number): Promise<boolean> {
+export async function matchAndUpdateJob(jobId: number, userId: string): Promise<boolean> {
   try {
-    const job = await storage.getJob(jobId);
+    const job = await storage.getJob(jobId, userId);
     if (!job) {
       console.error(`Job ${jobId} not found`);
       return false;
     }
 
-    const matchResult = await matchJobAgainstResumes(job);
+    const matchResult = await matchJobAgainstResumes(job, userId);
     if (!matchResult) {
       return false;
     }
@@ -126,14 +126,32 @@ export async function matchAndUpdateJob(jobId: number): Promise<boolean> {
       tags: matchResult.missingKeywords.length > 0 
         ? [...(job.tags || []), ...matchResult.missingKeywords].slice(0, 15) // Limit tags
         : job.tags,
-    });
+    }, userId);
 
     // Log activity (API usage is already logged by AI service)
     const { activityLogger } = await import("../logger");
     await activityLogger.info(
       `Job "${job.title}" matched - Score: ${matchResult.matchScore}%`,
-      { jobId, matchScore: matchResult.matchScore, resumeId: matchResult.bestResumeId }
+      { jobId, matchScore: matchResult.matchScore, resumeId: matchResult.bestResumeId },
+      userId
     );
+
+    // Send Discord notification for high-match jobs
+    try {
+      const matchedResume = await storage.getResume(matchResult.bestResumeId, userId);
+      const { notifyHighMatchJob } = await import("../discord");
+      await notifyHighMatchJob(
+        job.title,
+        job.company,
+        job.location,
+        matchResult.matchScore,
+        job.url || undefined,
+        matchedResume?.name
+      );
+    } catch (error) {
+      // Don't fail the matching if Discord notification fails
+      console.error("Error sending Discord notification:", error);
+    }
 
     console.log(`Matched job ${jobId} (${job.title}) - Score: ${matchResult.matchScore}%`);
     return true;
@@ -146,7 +164,7 @@ export async function matchAndUpdateJob(jobId: number): Promise<boolean> {
 /**
  * Match multiple jobs in batch
  */
-export async function matchJobsBatch(jobs: Job[]): Promise<{ matched: number; failed: number }> {
+export async function matchJobsBatch(jobs: Job[], userId: string): Promise<{ matched: number; failed: number }> {
   let matched = 0;
   let failed = 0;
 
@@ -157,7 +175,7 @@ export async function matchJobsBatch(jobs: Job[]): Promise<{ matched: number; fa
         continue;
       }
 
-      const success = await matchAndUpdateJob(job.id);
+      const success = await matchAndUpdateJob(job.id, userId);
       if (success) {
         matched++;
       } else {
@@ -178,14 +196,14 @@ export async function matchJobsBatch(jobs: Job[]): Promise<{ matched: number; fa
 /**
  * Match all pending jobs (jobs without match scores)
  */
-export async function matchAllPendingJobs(): Promise<{ matched: number; failed: number; total: number }> {
+export async function matchAllPendingJobs(userId: string): Promise<{ matched: number; failed: number; total: number }> {
   try {
-    const allJobs = await storage.getJobs();
+    const allJobs = await storage.getJobs(userId);
     const pendingJobs = allJobs.filter(j => j.matchScore === null || j.matchScore === undefined);
     
     console.log(`Matching ${pendingJobs.length} pending jobs...`);
     
-    const result = await matchJobsBatch(pendingJobs);
+    const result = await matchJobsBatch(pendingJobs, userId);
     
     return {
       ...result,

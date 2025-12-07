@@ -18,12 +18,12 @@ interface APIUsage {
 }
 
 /**
- * Get API usage statistics
+ * Get API usage statistics for a specific user
  */
-export async function getAPIUsage(): Promise<APIUsage> {
+export async function getAPIUsage(userId: string): Promise<APIUsage> {
   try {
-    // Get all activity logs
-    const allLogs = await storage.getActivityLogs(1000);
+    // Get all activity logs for this user
+    const allLogs = await storage.getActivityLogs(userId, 1000);
     
     // Get today's date
     const today = new Date();
@@ -91,11 +91,11 @@ export async function getAPIUsage(): Promise<APIUsage> {
 /**
  * Log an API call (call this whenever Perplexity API is used)
  */
-export async function logAPICall(context: string, metadata?: Record<string, any>): Promise<void> {
+export async function logAPICall(context: string, metadata?: Record<string, any>, userId?: string): Promise<void> {
   await activityLogger.info(`API call: ${context}`, {
     ...metadata,
     apiCall: true,
     timestamp: new Date().toISOString(),
-  });
+  }, userId);
 }
 

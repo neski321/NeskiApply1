@@ -26,35 +26,37 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getAllUsers(): Promise<User[]>;
+  updateUserRole(userId: string, role: "user" | "admin"): Promise<User | undefined>;
 
   // Resumes
-  createResume(resume: InsertResume): Promise<Resume>;
-  getResumes(): Promise<Resume[]>;
-  getResume(id: number): Promise<Resume | undefined>;
-  updateResume(id: number, resume: Partial<InsertResume>): Promise<Resume | undefined>;
-  deleteResume(id: number): Promise<boolean>;
+  createResume(resume: InsertResume, userId: string): Promise<Resume>;
+  getResumes(userId: string): Promise<Resume[]>;
+  getResume(id: number, userId: string): Promise<Resume | undefined>;
+  updateResume(id: number, resume: Partial<InsertResume>, userId: string): Promise<Resume | undefined>;
+  deleteResume(id: number, userId: string): Promise<boolean>;
 
   // Jobs
-  createJob(job: InsertJob): Promise<Job>;
-  getJobs(filters?: { status?: string; minMatchScore?: number }): Promise<Job[]>;
-  getJob(id: number): Promise<Job | undefined>;
-  updateJob(id: number, job: Partial<InsertJob>): Promise<Job | undefined>;
-  deleteJob(id: number): Promise<boolean>;
-  upsertJobByExternalId(job: InsertJob): Promise<Job>;
+  createJob(job: InsertJob, userId: string): Promise<Job>;
+  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number }): Promise<Job[]>;
+  getJob(id: number, userId: string): Promise<Job | undefined>;
+  updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
+  deleteJob(id: number, userId: string): Promise<boolean>;
+  upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job>;
 
   // ATS Analyses
-  createATSAnalysis(analysis: InsertATSAnalysis): Promise<ATSAnalysis>;
-  getATSAnalyses(limit?: number): Promise<ATSAnalysis[]>;
-  getATSAnalysis(id: number): Promise<ATSAnalysis | undefined>;
+  createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis>;
+  getATSAnalyses(userId: string, limit?: number): Promise<ATSAnalysis[]>;
+  getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined>;
 
   // Settings
-  getSetting(key: string): Promise<Setting | undefined>;
-  setSetting(key: string, value: string): Promise<Setting>;
-  getAllSettings(): Promise<Setting[]>;
+  getSetting(key: string, userId: string): Promise<Setting | undefined>;
+  setSetting(key: string, value: string, userId: string): Promise<Setting>;
+  getAllSettings(userId: string): Promise<Setting[]>;
 
   // Activity Logs
-  createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
-  getActivityLogs(limit?: number): Promise<ActivityLog[]>;
+  createActivityLog(log: InsertActivityLog, userId: string): Promise<ActivityLog>;
+  getActivityLogs(userId: string, limit?: number): Promise<ActivityLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -74,45 +76,57 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  // Resumes
-  async createResume(resume: InsertResume): Promise<Resume> {
-    const [newResume] = await db.insert(resumes).values(resume).returning();
-    return newResume;
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(users.username);
   }
 
-  async getResumes(): Promise<Resume[]> {
-    return await db.select().from(resumes).orderBy(desc(resumes.updatedAt));
-  }
-
-  async getResume(id: number): Promise<Resume | undefined> {
-    const [resume] = await db.select().from(resumes).where(eq(resumes.id, id));
-    return resume || undefined;
-  }
-
-  async updateResume(id: number, resume: Partial<InsertResume>): Promise<Resume | undefined> {
+  async updateUserRole(userId: string, role: "user" | "admin"): Promise<User | undefined> {
     const [updated] = await db
-      .update(resumes)
-      .set({ ...resume, updatedAt: new Date() })
-      .where(eq(resumes.id, id))
+      .update(users)
+      .set({ role })
+      .where(eq(users.id, userId))
       .returning();
     return updated || undefined;
   }
 
-  async deleteResume(id: number): Promise<boolean> {
-    const result = await db.delete(resumes).where(eq(resumes.id, id));
+  // Resumes
+  async createResume(resume: InsertResume, userId: string): Promise<Resume> {
+    const [newResume] = await db.insert(resumes).values({ ...resume, userId }).returning();
+    return newResume;
+  }
+
+  async getResumes(userId: string): Promise<Resume[]> {
+    return await db.select().from(resumes).where(eq(resumes.userId, userId)).orderBy(desc(resumes.updatedAt));
+  }
+
+  async getResume(id: number, userId: string): Promise<Resume | undefined> {
+    const [resume] = await db.select().from(resumes).where(and(eq(resumes.id, id), eq(resumes.userId, userId)));
+    return resume || undefined;
+  }
+
+  async updateResume(id: number, resume: Partial<InsertResume>, userId: string): Promise<Resume | undefined> {
+    const [updated] = await db
+      .update(resumes)
+      .set({ ...resume, updatedAt: new Date() })
+      .where(and(eq(resumes.id, id), eq(resumes.userId, userId)))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteResume(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(resumes).where(and(eq(resumes.id, id), eq(resumes.userId, userId)));
     return result.rowCount ? result.rowCount > 0 : false;
   }
 
   // Jobs
-  async createJob(job: InsertJob): Promise<Job> {
-    const [newJob] = await db.insert(jobs).values(job).returning();
+  async createJob(job: InsertJob, userId: string): Promise<Job> {
+    const [newJob] = await db.insert(jobs).values({ ...job, userId }).returning();
     return newJob;
   }
 
-  async getJobs(filters?: { status?: string; minMatchScore?: number }): Promise<Job[]> {
-    let query = db.select().from(jobs);
+  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number }): Promise<Job[]> {
+    const conditions = [eq(jobs.userId, userId)];
     
-    const conditions = [];
     if (filters?.status) {
       conditions.push(eq(jobs.status, filters.status));
     }
@@ -120,70 +134,67 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${jobs.matchScore} >= ${filters.minMatchScore}`);
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-    }
-
-    return await query.orderBy(desc(jobs.createdAt));
+    return await db.select().from(jobs).where(and(...conditions)).orderBy(desc(jobs.createdAt));
   }
 
-  async getJob(id: number): Promise<Job | undefined> {
-    const [job] = await db.select().from(jobs).where(eq(jobs.id, id));
+  async getJob(id: number, userId: string): Promise<Job | undefined> {
+    const [job] = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     return job || undefined;
   }
 
-  async updateJob(id: number, job: Partial<InsertJob>): Promise<Job | undefined> {
+  async updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined> {
     const [updated] = await db
       .update(jobs)
       .set(job)
-      .where(eq(jobs.id, id))
+      .where(and(eq(jobs.id, id), eq(jobs.userId, userId)))
       .returning();
     return updated || undefined;
   }
 
-  async deleteJob(id: number): Promise<boolean> {
-    const result = await db.delete(jobs).where(eq(jobs.id, id));
+  async deleteJob(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     return result.rowCount ? result.rowCount > 0 : false;
   }
 
-  async upsertJobByExternalId(job: InsertJob): Promise<Job> {
+  async upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job> {
     if (!job.externalId) {
-      return this.createJob(job);
+      return this.createJob(job, userId);
     }
 
-    const [existing] = await db.select().from(jobs).where(eq(jobs.externalId, job.externalId));
+    // Check for existing job with same externalId AND userId
+    const [existing] = await db.select().from(jobs).where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)));
     
     if (existing) {
       const [updated] = await db
         .update(jobs)
         .set(job)
-        .where(eq(jobs.externalId, job.externalId))
+        .where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)))
         .returning();
       return updated;
     }
 
-    return this.createJob(job);
+    return this.createJob(job, userId);
   }
 
   // ATS Analyses
-  async createATSAnalysis(analysis: InsertATSAnalysis): Promise<ATSAnalysis> {
-    const [newAnalysis] = await db.insert(atsAnalyses).values(analysis).returning();
+  async createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis> {
+    const [newAnalysis] = await db.insert(atsAnalyses).values({ ...analysis, userId }).returning();
     return newAnalysis;
   }
 
-  async getATSAnalyses(limit: number = 50): Promise<ATSAnalysis[]> {
-    return await db.select().from(atsAnalyses).orderBy(desc(atsAnalyses.createdAt)).limit(limit);
+  async getATSAnalyses(userId: string, limit: number = 50): Promise<ATSAnalysis[]> {
+    return await db.select().from(atsAnalyses).where(eq(atsAnalyses.userId, userId)).orderBy(desc(atsAnalyses.createdAt)).limit(limit);
   }
 
-  async getATSAnalysis(id: number): Promise<ATSAnalysis | undefined> {
-    const [analysis] = await db.select().from(atsAnalyses).where(eq(atsAnalyses.id, id));
+  async getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined> {
+    const [analysis] = await db.select().from(atsAnalyses).where(and(eq(atsAnalyses.id, id), eq(atsAnalyses.userId, userId)));
     return analysis || undefined;
   }
 
   // Settings
-  async getSetting(key: string): Promise<Setting | undefined> {
+  async getSetting(key: string, userId: string): Promise<Setting | undefined> {
     // First, check database settings (takes precedence)
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key));
+    const [setting] = await db.select().from(settings).where(and(eq(settings.key, key), eq(settings.userId, userId)));
     if (setting) {
       return setting;
     }
@@ -204,6 +215,7 @@ export class DatabaseStorage implements IStorage {
       // Using id: -1 as a sentinel value to indicate it's from env vars
       return {
         id: -1,
+        userId,
         key,
         value: process.env[envVarName],
         updatedAt: new Date(),
@@ -213,35 +225,39 @@ export class DatabaseStorage implements IStorage {
     return undefined;
   }
 
-  async setSetting(key: string, value: string): Promise<Setting> {
+  async setSetting(key: string, value: string, userId: string): Promise<Setting> {
     // Check if setting exists in database (not from env vars)
     // We query directly to avoid getting env var fallback
-    const [existing] = await db.select().from(settings).where(eq(settings.key, key));
+    const [existing] = await db.select().from(settings).where(and(eq(settings.key, key), eq(settings.userId, userId)));
     
     if (existing) {
       const [updated] = await db
         .update(settings)
         .set({ value, updatedAt: new Date() })
-        .where(eq(settings.key, key))
+        .where(and(eq(settings.key, key), eq(settings.userId, userId)))
         .returning();
       return updated;
     }
 
-    const [newSetting] = await db.insert(settings).values({ key, value }).returning();
+    const [newSetting] = await db.insert(settings).values({ key, value, userId }).returning();
     return newSetting;
   }
 
-  async getAllSettings(): Promise<Setting[]> {
-    return await db.select().from(settings);
+  async getAllSettings(userId: string): Promise<Setting[]> {
+    return await db.select().from(settings).where(eq(settings.userId, userId));
   }
 
   // Activity Logs
-  async createActivityLog(log: InsertActivityLog): Promise<ActivityLog> {
-    const [newLog] = await db.insert(activityLogs).values(log).returning();
+  async createActivityLog(log: InsertActivityLog, userId: string): Promise<ActivityLog> {
+    const [newLog] = await db.insert(activityLogs).values({ ...log, userId }).returning();
     return newLog;
   }
 
-  async getActivityLogs(limit: number = 100): Promise<ActivityLog[]> {
+  async getActivityLogs(userId: string, limit: number = 100): Promise<ActivityLog[]> {
+    return await db.select().from(activityLogs).where(eq(activityLogs.userId, userId)).orderBy(desc(activityLogs.createdAt)).limit(limit);
+  }
+
+  async getAllActivityLogs(limit: number = 100): Promise<ActivityLog[]> {
     return await db.select().from(activityLogs).orderBy(desc(activityLogs.createdAt)).limit(limit);
   }
 }
