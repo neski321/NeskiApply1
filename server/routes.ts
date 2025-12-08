@@ -22,11 +22,18 @@ export async function registerRoutes(
   
   // Check authentication status
   app.get("/api/auth/me", (req, res) => {
+    // Debug logging
+    console.log("[Auth Check] Session ID:", req.sessionID);
+    console.log("[Auth Check] Is authenticated:", req.isAuthenticated());
+    console.log("[Auth Check] User:", req.user ? "exists" : "null");
+    console.log("[Auth Check] Session:", req.session ? "exists" : "null");
+    
     if (req.isAuthenticated() && req.user) {
       // Don't send password hash
       const { password, ...userWithoutPassword } = req.user as any;
       res.json({ authenticated: true, user: userWithoutPassword });
     } else {
+      console.log("[Auth Check] Not authenticated - returning false");
       res.json({ authenticated: false, user: null });
     }
   });
@@ -102,18 +109,38 @@ export async function registerRoutes(
       
       req.login(user, (loginErr) => {
         if (loginErr) {
-          console.error("Login error:", loginErr);
+          console.error("[Login] Login error:", loginErr);
           return res.status(500).json({ error: "Failed to create session" });
         }
+        
+        console.log("[Login] User logged in, session ID:", req.sessionID);
+        console.log("[Login] Is authenticated:", req.isAuthenticated());
+        console.log("[Login] Session cookie will be set with:", {
+          secure: process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT,
+          httpOnly: true,
+          sameSite: process.env.COOKIE_SAME_SITE || "lax",
+        });
         
         // Ensure session is saved before sending response
         req.session.save((saveErr) => {
           if (saveErr) {
-            console.error("Session save error:", saveErr);
+            console.error("[Login] Session save error:", saveErr);
             return res.status(500).json({ error: "Failed to save session" });
           }
           
+          console.log("[Login] Session saved successfully, session ID:", req.sessionID);
+          console.log("[Login] Session cookie should be sent in response");
+          
           const { password: _, ...userWithoutPassword } = user;
+          
+          // Explicitly set cookie headers to ensure they're sent
+          res.cookie("connect.sid", req.sessionID, {
+            secure: process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT,
+            httpOnly: true,
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+            sameSite: (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || "lax",
+          });
+          
           res.json({ 
             success: true, 
             message: "Login successful",
