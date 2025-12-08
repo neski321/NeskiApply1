@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Loader2, Mail, Lock, ArrowRight, Sparkles } from "lucide-react";
 export default function Login() {
   const [, setLocation] = useLocation();
   const { login, isLoggingIn, loginError } = useAuth();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +29,14 @@ export default function Login() {
 
     try {
       await login({ username, password });
+      // Wait for auth query to refetch and update (works in both local and Railway)
+      // This ensures auth state is synchronized before redirect, especially important
+      // on Railway where network latency can cause race conditions
+      await queryClient.refetchQueries({ queryKey: ["auth"] });
+      
+      // Small additional delay to ensure state propagation (helps with Railway latency)
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       toast({
         title: "Welcome back!",
         description: "You've been successfully logged in.",

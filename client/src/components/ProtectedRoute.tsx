@@ -8,8 +8,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
+    // Only redirect if we're sure the user is not authenticated
+    // Give a small delay to allow auth state to update after login
     if (!isLoading && !isAuthenticated) {
-      setLocation("/login");
+      const timer = setTimeout(() => {
+        setLocation("/login");
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isAuthenticated, isLoading, setLocation]);
 

@@ -28,9 +28,14 @@ export function useAuth() {
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       login(username, password),
     onSuccess: (data) => {
+      // Update user state immediately
       setUser(data.user);
+      // Update query cache immediately
       queryClient.setQueryData(["auth"], { authenticated: true, user: data.user });
+      // Refetch auth status to ensure consistency (important for Railway with network latency)
       queryClient.invalidateQueries({ queryKey: ["auth"] });
+      // Update loading state immediately
+      setIsLoading(false);
     },
   });
 
