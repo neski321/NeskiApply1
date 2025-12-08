@@ -8,6 +8,17 @@ const PgSession = connectPgSimple(session);
  * Configure express-session with PostgreSQL store
  */
 export function configureSession() {
+  // Railway uses HTTPS, so we need secure cookies
+  // Check if we're in production OR if RAILWAY environment is set
+  const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+  const cookieSameSite = (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || "lax";
+  
+  console.log("[Session Config] NODE_ENV:", process.env.NODE_ENV);
+  console.log("[Session Config] RAILWAY_ENVIRONMENT:", process.env.RAILWAY_ENVIRONMENT);
+  console.log("[Session Config] isProduction:", isProduction);
+  console.log("[Session Config] COOKIE_SAME_SITE:", cookieSameSite);
+  console.log("[Session Config] SESSION_SECRET set:", !!process.env.SESSION_SECRET);
+  
   return session({
     store: new PgSession({
       pool: pool,
@@ -18,12 +29,12 @@ export function configureSession() {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production", // Use secure cookies in production (HTTPS)
+      // Railway uses HTTPS, so secure must be true
+      secure: isProduction, // Use secure cookies in production (HTTPS)
       httpOnly: true, // Prevent XSS attacks
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      // Railway: Use "none" if frontend/backend are on different subdomains, "lax" if same domain
-      sameSite: (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || "lax",
-      // Ensure domain is set correctly for Railway
+      sameSite: cookieSameSite,
+      // Don't set domain unless explicitly needed (Railway usually works without it)
       ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
     },
     name: "connect.sid", // Session cookie name

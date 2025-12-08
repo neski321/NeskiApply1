@@ -11,7 +11,12 @@ export function useAuth() {
   // Check auth status
   const { data: authData, refetch: refetchAuth } = useQuery<AuthResponse>({
     queryKey: ["auth"],
-    queryFn: getAuthStatus,
+    queryFn: async () => {
+      console.log("[useAuth] Fetching auth status...");
+      const result = await getAuthStatus();
+      console.log("[useAuth] Auth status result:", result);
+      return result;
+    },
     retry: false,
     refetchOnWindowFocus: true, // Refetch when window regains focus
     refetchOnMount: true, // Always refetch on mount

@@ -28,24 +28,38 @@ export default function Login() {
     }
 
     try {
-      await login({ username, password });
+      const loginResult = await login({ username, password });
+      console.log("[Login] Login API call successful:", loginResult);
       
       // Wait for session cookie to be set and propagated
       // This is especially important on Railway where network latency can cause issues
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 800));
       
       // Refetch auth status to ensure session is recognized
-      await queryClient.refetchQueries({ queryKey: ["auth"] });
+      console.log("[Login] Refetching auth status...");
+      const authResult = await queryClient.refetchQueries({ queryKey: ["auth"] });
+      console.log("[Login] Auth refetch result:", authResult);
+      
+      // Check auth status one more time before redirecting
+      const authData = await queryClient.getQueryData<{ authenticated: boolean; user: any }>(["auth"]);
+      console.log("[Login] Current auth data:", authData);
+      
+      if (!authData?.authenticated) {
+        console.warn("[Login] Still not authenticated after refetch, waiting more...");
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await queryClient.refetchQueries({ queryKey: ["auth"] });
+      }
       
       toast({
         title: "Welcome back!",
         description: "You've been successfully logged in.",
       });
       
-      // Use a small delay before redirect to ensure state is fully updated
+      // Use a delay before redirect to ensure state is fully updated
       setTimeout(() => {
+        console.log("[Login] Redirecting to dashboard...");
         setLocation("/");
-      }, 100);
+      }, 200);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to login";
       setError(errorMessage);
