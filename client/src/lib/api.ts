@@ -198,8 +198,23 @@ export async function getATSAnalyses(limit?: number): Promise<ATSAnalysis[]> {
 }
 
 export async function getATSAnalysis(id: number): Promise<ATSAnalysis> {
-  const response = await fetch(`/api/ats/analyses/${id}`);
+  const response = await fetch(`/api/ats/analyses/${id}`, {
+    credentials: "include",
+  });
   if (!response.ok) throw new Error("Failed to fetch analysis");
+  return response.json();
+}
+
+export async function getATSAnalysisByJobId(jobId: number): Promise<ATSAnalysis> {
+  const response = await fetch(`/api/ats/analyses/job/${jobId}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("Analysis not found for this job");
+    }
+    throw new Error("Failed to fetch analysis");
+  }
   return response.json();
 }
 

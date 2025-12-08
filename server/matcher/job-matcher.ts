@@ -128,6 +128,25 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
         : job.tags,
     }, userId);
 
+    // Save full ATS analysis to database for viewing later
+    try {
+      await storage.createATSAnalysis({
+        jobId: jobId,
+        jobTitle: job.title,
+        jobCompany: job.company,
+        jobDescription: job.description,
+        bestResumeId: matchResult.bestResumeId,
+        matchScore: matchResult.matchScore,
+        missingKeywords: matchResult.missingKeywords,
+        suggestions: matchResult.suggestions as any,
+        resumeComparisons: matchResult.resumeComparisons as any,
+      }, userId);
+      console.log(`Saved ATS analysis for job ${jobId} to database`);
+    } catch (error) {
+      console.error(`Failed to save ATS analysis for job ${jobId}:`, error);
+      // Don't fail the matching if analysis save fails
+    }
+
     // Log activity (API usage is already logged by AI service)
     const { activityLogger } = await import("../logger");
     await activityLogger.info(

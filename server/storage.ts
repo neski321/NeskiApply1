@@ -48,6 +48,7 @@ export interface IStorage {
   createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis>;
   getATSAnalyses(userId: string, limit?: number): Promise<ATSAnalysis[]>;
   getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined>;
+  getATSAnalysisByJobId(jobId: number, userId: string): Promise<ATSAnalysis | undefined>;
 
   // Settings
   getSetting(key: string, userId: string): Promise<Setting | undefined>;
@@ -188,6 +189,16 @@ export class DatabaseStorage implements IStorage {
 
   async getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined> {
     const [analysis] = await db.select().from(atsAnalyses).where(and(eq(atsAnalyses.id, id), eq(atsAnalyses.userId, userId)));
+    return analysis || undefined;
+  }
+
+  async getATSAnalysisByJobId(jobId: number, userId: string): Promise<ATSAnalysis | undefined> {
+    const [analysis] = await db
+      .select()
+      .from(atsAnalyses)
+      .where(and(eq(atsAnalyses.jobId, jobId), eq(atsAnalyses.userId, userId)))
+      .orderBy(desc(atsAnalyses.createdAt))
+      .limit(1);
     return analysis || undefined;
   }
 
