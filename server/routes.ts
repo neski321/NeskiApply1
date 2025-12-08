@@ -115,7 +115,7 @@ export async function registerRoutes(
         
         console.log("[Login] User logged in, session ID:", req.sessionID);
         console.log("[Login] Is authenticated:", req.isAuthenticated());
-        console.log("[Login] Session cookie will be set with:", {
+        console.log("[Login] Session cookie config:", {
           secure: process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT,
           httpOnly: true,
           sameSite: process.env.COOKIE_SAME_SITE || "lax",
@@ -129,18 +129,12 @@ export async function registerRoutes(
           }
           
           console.log("[Login] Session saved successfully, session ID:", req.sessionID);
-          console.log("[Login] Session cookie should be sent in response");
+          console.log("[Login] Response headers will include Set-Cookie for session");
           
           const { password: _, ...userWithoutPassword } = user;
           
-          // Explicitly set cookie headers to ensure they're sent
-          res.cookie("connect.sid", req.sessionID, {
-            secure: process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT,
-            httpOnly: true,
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-            sameSite: (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || "lax",
-          });
-          
+          // Don't manually set cookie - express-session handles it automatically
+          // Manually setting it can cause conflicts
           res.json({ 
             success: true, 
             message: "Login successful",
