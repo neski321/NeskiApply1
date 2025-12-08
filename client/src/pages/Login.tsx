@@ -29,19 +29,23 @@ export default function Login() {
 
     try {
       await login({ username, password });
-      // Wait for auth query to refetch and update (works in both local and Railway)
-      // This ensures auth state is synchronized before redirect, especially important
-      // on Railway where network latency can cause race conditions
-      await queryClient.refetchQueries({ queryKey: ["auth"] });
       
-      // Small additional delay to ensure state propagation (helps with Railway latency)
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait for session cookie to be set and propagated
+      // This is especially important on Railway where network latency can cause issues
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refetch auth status to ensure session is recognized
+      await queryClient.refetchQueries({ queryKey: ["auth"] });
       
       toast({
         title: "Welcome back!",
         description: "You've been successfully logged in.",
       });
-      setLocation("/");
+      
+      // Use a small delay before redirect to ensure state is fully updated
+      setTimeout(() => {
+        setLocation("/");
+      }, 100);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to login";
       setError(errorMessage);

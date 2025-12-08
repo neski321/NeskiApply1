@@ -21,7 +21,10 @@ export function configureSession() {
       secure: process.env.NODE_ENV === "production", // Use secure cookies in production (HTTPS)
       httpOnly: true, // Prevent XSS attacks
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      sameSite: "lax", // CSRF protection
+      // Railway: Use "none" if frontend/backend are on different subdomains, "lax" if same domain
+      sameSite: (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || "lax",
+      // Ensure domain is set correctly for Railway
+      ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
     },
     name: "connect.sid", // Session cookie name
   });

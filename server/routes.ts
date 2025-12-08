@@ -102,14 +102,23 @@ export async function registerRoutes(
       
       req.login(user, (loginErr) => {
         if (loginErr) {
+          console.error("Login error:", loginErr);
           return res.status(500).json({ error: "Failed to create session" });
         }
         
-        const { password: _, ...userWithoutPassword } = user;
-        res.json({ 
-          success: true, 
-          message: "Login successful",
-          user: userWithoutPassword 
+        // Ensure session is saved before sending response
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("Session save error:", saveErr);
+            return res.status(500).json({ error: "Failed to save session" });
+          }
+          
+          const { password: _, ...userWithoutPassword } = user;
+          res.json({ 
+            success: true, 
+            message: "Login successful",
+            user: userWithoutPassword 
+          });
         });
       });
     })(req, res, next);

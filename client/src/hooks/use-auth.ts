@@ -13,6 +13,8 @@ export function useAuth() {
     queryKey: ["auth"],
     queryFn: getAuthStatus,
     retry: false,
+    refetchOnWindowFocus: true, // Refetch when window regains focus
+    refetchOnMount: true, // Always refetch on mount
   });
 
   // Update user state when auth data changes
