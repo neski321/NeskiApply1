@@ -75,6 +75,7 @@ export type Job = typeof jobs.$inferSelect;
 export const atsAnalyses = pgTable("ats_analyses", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  jobId: integer("job_id").references(() => jobs.id, { onDelete: "cascade" }), // Link to job if analysis was done for a scraped job
   jobTitle: text("job_title").notNull(),
   jobCompany: text("job_company"),
   jobDescription: text("job_description").notNull(),

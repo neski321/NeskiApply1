@@ -593,7 +593,7 @@ Return your response as JSON in this exact format:
     }
   });
 
-  // Get single analysis
+  // Get single analysis by ID
   app.get("/api/ats/analyses/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
@@ -607,6 +607,24 @@ Return your response as JSON in this exact format:
       res.json(analysis);
     } catch (error) {
       console.error("Error fetching analysis:", error);
+      res.status(500).json({ error: "Failed to fetch analysis" });
+    }
+  });
+
+  // Get analysis by job ID
+  app.get("/api/ats/analyses/job/:jobId", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = parseInt(req.params.jobId);
+      const analysis = await storage.getATSAnalysisByJobId(jobId, userId);
+      
+      if (!analysis) {
+        return res.status(404).json({ error: "Analysis not found for this job" });
+      }
+      
+      res.json(analysis);
+    } catch (error) {
+      console.error("Error fetching analysis by job ID:", error);
       res.status(500).json({ error: "Failed to fetch analysis" });
     }
   });

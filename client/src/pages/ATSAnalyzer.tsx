@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,16 +11,77 @@ import { MatchRing } from "@/components/ui/match-ring";
 import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { analyzeJob, getResumes } from "@/lib/api";
+import { analyzeJob, getResumes, getATSAnalysisByJobId, getJobs } from "@/lib/api";
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ATSAnalyzer() {
   const { toast } = useToast();
+  const [location] = useLocation();
   const [jobTitle, setJobTitle] = useState("");
   const [jobCompany, setJobCompany] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
+  
+  // Get jobId from URL query params
+  const urlParams = new URLSearchParams(window.location.search);
+  const jobIdParam = urlParams.get("jobId");
+  const jobId = jobIdParam ? parseInt(jobIdParam) : null;
+
+  // Load existing analysis if jobId is provided
+  const { data: existingAnalysis, isLoading: isLoadingAnalysis } = useQuery({
+    queryKey: ["atsAnalysis", jobId],
+    queryFn: () => {
+      if (!jobId) return null;
+      return getATSAnalysisByJobId(jobId);
+    },
+    enabled: !!jobId,
+    retry: false,
+    onSuccess: (data) => {
+      if (data) {
+        setAnalysisResult(data);
+        setJobTitle(data.jobTitle);
+        setJobCompany(data.jobCompany || "");
+        setJobDescription(data.jobDescription);
+        toast({
+          title: "Analysis loaded",
+          description: "Showing existing analysis for this job.",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      // If analysis not found, try to load job details
+      if (error.message.includes("not found") && jobId) {
+        loadJobDetails(jobId);
+      }
+    },
+  });
+
+  // Load job details if analysis doesn't exist
+  const loadJobDetails = async (jobId: number) => {
+    try {
+      const jobs = await getJobs({});
+      const job = jobs.find(j => j.id === jobId);
+      if (job) {
+        setJobTitle(job.title);
+        setJobCompany(job.company);
+        setJobDescription(job.description);
+        toast({
+          title: "Analysis not found",
+          description: "This job hasn't been analyzed yet. You can analyze it below.",
+          variant: "default",
+        });
+      } else {
+        throw new Error("Job not found");
+      }
+    } catch (error) {
+      toast({
+        title: "Job not found",
+        description: "Could not load job details.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const { data: resumes = [] } = useQuery({
     queryKey: ["resumes"],
@@ -144,7 +206,17 @@ export default function ATSAnalyzer() {
 
           {/* Right Column: Results */}
           <div className="lg:col-span-7 space-y-6">
-            {!analysisResult ? (
+            {isLoadingAnalysis ? (
+              <div className="h-full min-h-[500px] rounded-xl border border-dashed border-border/50 bg-card/20 flex flex-col items-center justify-center text-center p-8 gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div>
+                  <h3 className="text-lg font-medium">Loading Analysis</h3>
+                  <p className="text-muted-foreground max-w-xs mx-auto mt-2">
+                    Loading existing analysis for this job...
+                  </p>
+                </div>
+              </div>
+            ) : !analysisResult ? (
               <div className="h-full min-h-[500px] rounded-xl border border-dashed border-border/50 bg-card/20 flex flex-col items-center justify-center text-center p-8 gap-4">
                 <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
                   <Sparkles className="h-10 w-10 text-primary/50" />
