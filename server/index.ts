@@ -12,6 +12,10 @@ import { configurePassport } from "./auth/passport";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust proxy - REQUIRED for Railway to handle cookies correctly
+// Railway uses a reverse proxy, so we need to trust the first proxy
+app.set("trust proxy", 1);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
