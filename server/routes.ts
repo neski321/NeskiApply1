@@ -115,10 +115,14 @@ export async function registerRoutes(
         
         console.log("[Login] User logged in, session ID:", req.sessionID);
         console.log("[Login] Is authenticated:", req.isAuthenticated());
+        
+        // Get actual cookie config from session
+        const sessionConfig = req.session.cookie;
         console.log("[Login] Session cookie config:", {
-          secure: process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT,
-          httpOnly: true,
-          sameSite: process.env.COOKIE_SAME_SITE || "lax",
+          secure: sessionConfig.secure,
+          httpOnly: sessionConfig.httpOnly,
+          sameSite: sessionConfig.sameSite,
+          maxAge: sessionConfig.maxAge,
         });
         
         // Ensure session is saved before sending response

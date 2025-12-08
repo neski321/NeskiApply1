@@ -28,6 +28,24 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// CORS headers for Railway (if needed)
+app.use((req, res, next) => {
+  // Allow credentials (cookies) to be sent
+  res.header("Access-Control-Allow-Credentials", "true");
+  // Allow the origin that's making the request
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Configure and use session middleware (must be before passport)
 app.use(configureSession());
 

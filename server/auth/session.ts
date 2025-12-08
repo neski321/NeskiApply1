@@ -11,15 +11,22 @@ export function configureSession() {
   // Railway uses HTTPS, so we need secure cookies
   // Check if we're in production OR if RAILWAY environment is set
   const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
-  // For Railway, try "none" first if sameSite is not explicitly set
-  // "none" requires secure: true, which we have in production
-  const cookieSameSite = (process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict") || 
-    (isProduction ? "none" : "lax");
+  
+  // For Railway/production, default to "none" if not explicitly set
+  // "none" is required for cross-site cookies and works with secure: true
+  let cookieSameSite: "lax" | "none" | "strict" = "lax";
+  if (process.env.COOKIE_SAME_SITE) {
+    cookieSameSite = process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict";
+  } else if (isProduction) {
+    // Default to "none" for production/Railway to ensure cookies work
+    cookieSameSite = "none";
+  }
   
   console.log("[Session Config] NODE_ENV:", process.env.NODE_ENV);
   console.log("[Session Config] RAILWAY_ENVIRONMENT:", process.env.RAILWAY_ENVIRONMENT);
   console.log("[Session Config] isProduction:", isProduction);
-  console.log("[Session Config] COOKIE_SAME_SITE:", cookieSameSite);
+  console.log("[Session Config] COOKIE_SAME_SITE (env):", process.env.COOKIE_SAME_SITE);
+  console.log("[Session Config] COOKIE_SAME_SITE (final):", cookieSameSite);
   console.log("[Session Config] SESSION_SECRET set:", !!process.env.SESSION_SECRET);
   console.log("[Session Config] Cookie settings:", {
     secure: isProduction,
