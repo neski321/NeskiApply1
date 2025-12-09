@@ -35,12 +35,38 @@ export function configureSession() {
     maxAge: "30 days"
   });
   
+  // Configure PgSession store
+  // Don't use createTableIfMissing - it tries to read table.sql which doesn't exist in dist
+  // Instead, we'll create the table manually via migration or ensure it exists
+  const sessionStore = new PgSession({
+    pool: pool,
+    tableName: "session", // Table name for sessions
+    createTableIfMissing: false, // Disable auto-create to avoid table.sql file issue
+  });
+  
+  // Ensure session table exists (create it if it doesn't)
+  // This avoids the table.sql file issue
+  (async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS session (
+          sid VARCHAR NOT NULL COLLATE "default",
+          sess JSON NOT NULL,
+          expire TIMESTAMP(6) NOT NULL,
+          CONSTRAINT session_pkey PRIMARY KEY (sid)
+        )
+        WITH (OIDS=FALSE);
+        CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON session ("expire");
+      `);
+      console.log("[Session Config] Session table verified/created");
+    } catch (error) {
+      console.error("[Session Config] Error ensuring session table exists:", error);
+      // Don't throw - table might already exist
+    }
+  })();
+  
   return session({
-    store: new PgSession({
-      pool: pool,
-      tableName: "session", // Table name for sessions
-      createTableIfMissing: true, // Automatically create table if it doesn't exist
-    }),
+    store: sessionStore,
     secret: process.env.SESSION_SECRET || "your-secret-key-change-in-production",
     resave: false,
     saveUninitialized: false,
