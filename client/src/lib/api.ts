@@ -173,6 +173,7 @@ export async function analyzeJob(data: {
   jobTitle: string;
   jobCompany?: string;
   jobDescription: string;
+  jobId?: number;
 }): Promise<ATSAnalysis> {
   const response = await fetch("/api/ats/analyze", {
     method: "POST",

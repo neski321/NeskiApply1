@@ -109,15 +109,15 @@ export default function JobFeed() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-6 h-full">
+      <div className="flex flex-col gap-4 md:gap-6 h-full w-full">
         <div className="flex flex-col gap-4">
-          <h1 className="text-2xl font-bold">Job Feed</h1>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+          <h1 className="text-xl sm:text-2xl font-bold">Job Feed</h1>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input 
                 placeholder="Search by title, company, location, or skill..." 
-                className="pl-9 bg-card/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
+                className="pl-9 bg-card/50 border-border/50 focus:border-primary/50 focus:ring-primary/20 w-full"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -134,7 +134,7 @@ export default function JobFeed() {
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80" align="end">
+              <PopoverContent className="w-[calc(100vw-2rem)] max-w-80" align="end">
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-medium mb-2">Status</h4>

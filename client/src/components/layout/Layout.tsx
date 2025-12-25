@@ -158,7 +158,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Header Mobile */}
-        <header className="h-14 border-b border-border bg-background/80 backdrop-blur-sm flex items-center justify-between px-4 md:hidden">
+        <header className="h-14 flex-shrink-0 border-b border-border bg-background/80 backdrop-blur-sm flex items-center justify-between px-4 md:hidden z-10">
            <div className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
             <span className="font-mono font-bold">NeskiApply.AI</span>
@@ -170,14 +170,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                  <Menu className="h-5 w-5" />
                </Button>
              </SheetTrigger>
-             <SheetContent side="left" className="w-72 p-0 flex flex-col bg-sidebar border-r border-sidebar-border">
+             <SheetContent side="left" className="w-72 p-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-y-auto">
                <NavContent />
              </SheetContent>
            </Sheet>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
-          <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 scroll-smooth -webkit-overflow-scrolling-touch">
+          <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
             {children}
           </div>
         </div>

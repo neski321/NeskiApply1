@@ -468,10 +468,18 @@ export async function registerRoutes(
   app.post("/api/ats/analyze", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const { jobTitle, jobCompany, jobDescription } = req.body;
+      const { jobTitle, jobCompany, jobDescription, jobId } = req.body;
       
       if (!jobDescription) {
         return res.status(400).json({ error: "Job description is required" });
+      }
+      
+      // If jobId is provided, verify the job exists and belongs to the user
+      if (jobId) {
+        const job = await storage.getJob(parseInt(jobId), userId);
+        if (!job) {
+          return res.status(404).json({ error: "Job not found" });
+        }
       }
 
       // Get all resumes for this user
@@ -559,8 +567,9 @@ Return your response as JSON in this exact format:
 
       // Save analysis to database
       const savedAnalysis = await storage.createATSAnalysis({
+        jobId: jobId ? parseInt(jobId) : undefined,
         jobTitle: jobTitle || "Untitled Job",
-        jobCompany: jobCompany || null,
+        jobCompany: jobCompany || undefined,
         jobDescription,
         bestResumeId: analysisResult.bestResumeId,
         matchScore: analysisResult.matchScore,
@@ -568,6 +577,14 @@ Return your response as JSON in this exact format:
         suggestions: analysisResult.suggestions || [],
         resumeComparisons: analysisResult.resumeComparisons || []
       }, userId);
+      
+      // If jobId was provided, update the job's match score and matched resume
+      if (jobId) {
+        await storage.updateJob(parseInt(jobId), {
+          matchScore: analysisResult.matchScore,
+          matchedResumeId: analysisResult.bestResumeId,
+        }, userId);
+      }
 
       // Log API usage
       const { logAPICall } = await import("./api-usage");
@@ -805,7 +822,7 @@ Return your response as JSON in this exact format:
       const linkedInLocationFilter = linkedInLocationFilterSetting?.value || undefined;
       
       // Job search provider preference
-      const jobSearchProviderPreference = (jobSearchProviderPreferenceSetting?.value || "auto") as "auto" | "jsearch" | "linkedin";
+      const jobSearchProviderPreference = (jobSearchProviderPreferenceSetting?.value || "auto") as "auto" | "jsearch" | "adzuna";
       console.log(`[Routes] Job search provider preference from settings: "${jobSearchProviderPreference}"`);
       
       // Import scraper (dynamic import to avoid loading issues)
@@ -817,7 +834,7 @@ Return your response as JSON in this exact format:
         jobTitles: jobTitles.length, 
         countryCode,
         datePosted,
-        linkedInTimePeriod
+        jobSearchProviderPreference
       }, userId);
       
       scrapeJobs({
@@ -825,8 +842,6 @@ Return your response as JSON in this exact format:
         countryCodes: [countryCode], // Pass as array for compatibility
         excludedKeywords,
         postedAtMaxAgeDays,
-        locationFilter: linkedInLocationFilter,
-        linkedInTimePeriod,
         jobSearchProviderPreference,
         userId, // Pass userId to scraper
       }).then(async (results) => {
