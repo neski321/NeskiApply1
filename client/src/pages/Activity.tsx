@@ -72,22 +72,22 @@ export default function Activity() {
   return (
     <Layout>
       <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Activity Log</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold">Activity Log</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               {isAdmin 
                 ? "All system activity logs - showing logs from all users" 
                 : "Your personal activity history - all logs are private to your account"}
             </p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
             {isAdmin && (
-              <Badge variant="outline" className="border-primary/50 text-primary">
+              <Badge variant="outline" className="border-primary/50 text-primary text-xs">
                 Admin View
               </Badge>
             )}
-            <div className="text-sm text-muted-foreground">
+            <div className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
               {logs.length} {logs.length === 1 ? "event" : "events"} logged
             </div>
           </div>
@@ -111,7 +111,7 @@ export default function Activity() {
                 </p>
               </div>
             ) : (
-              <ScrollArea className="h-[600px] pr-4">
+              <ScrollArea className="h-[calc(100vh-280px)] sm:h-[600px] pr-4">
                 <div className="space-y-8">
                   {sortedDates.map((date) => {
                     const dateLogs = groupedLogs[date];

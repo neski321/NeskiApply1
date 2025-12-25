@@ -1,9 +1,9 @@
 import { storage } from "../storage";
 import { scrapeJSearch } from "./jsearch";
-import { scrapeLinkedIn, type LinkedInTimePeriod } from "./linkedin";
+import { scrapeAdzuna } from "./adzuna";
 import type { InsertJob } from "@shared/schema";
 
-export type JobSearchProviderPreference = "auto" | "jsearch" | "linkedin";
+export type JobSearchProviderPreference = "auto" | "jsearch" | "adzuna";
 
 export interface ScrapeOptions {
   jobTitles: string[];
@@ -11,9 +11,7 @@ export interface ScrapeOptions {
   excludedKeywords?: string[];
   limit?: number;
   postedAtMaxAgeDays?: number;
-  locationFilter?: string; // For LinkedIn: full location names like "United States", "New York"
-  linkedInTimePeriod?: LinkedInTimePeriod; // "24h", "7d", or "both"
-  jobSearchProviderPreference?: JobSearchProviderPreference; // "auto" (both), "jsearch", or "linkedin"
+  jobSearchProviderPreference?: JobSearchProviderPreference; // "auto", "jsearch", or "adzuna"
   userId: string; // User ID for user-specific data
 }
 
@@ -25,9 +23,8 @@ export interface ScrapeResult {
 }
 
 /**
- * Main job scraper - uses JSearch and ActiveJobsDB APIs (via RapidAPI)
+ * Main job scraper - uses JSearch API (via RapidAPI)
  * JSearch: Limited to 5 jobs per day to manage API credits efficiently
- * ActiveJobsDB: Returns 7 results per search from 24h and 7d endpoints
  */
 export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]> {
   const {
@@ -36,26 +33,35 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
     excludedKeywords = [],
     limit = 5, // Default limit (applies to JSearch only)
     postedAtMaxAgeDays = 7, // Default to 7 days (maps to "week" for JSearch)
-    locationFilter,
-    linkedInTimePeriod = "both", // Default to both 24h and 7d
-    jobSearchProviderPreference = "auto", // Default to both providers
+    jobSearchProviderPreference = "auto", // Default to auto (use all providers)
     userId,
   } = options;
   
   // Enforce maximum of 5 jobs per day for JSearch only (to manage API credits)
   const maxJobsPerDayJSearch = 5;
   const jsearchLimit = Math.min(limit, maxJobsPerDayJSearch);
-  
-  // LinkedIn: 7 results per search (as per API requirements)
-  const linkedInLimit = 7;
 
   const results: ScrapeResult[] = [];
   
   // Get API keys and hosts from settings
   const jsearchApiKey = await storage.getSetting("jsearch_api_key", userId);
-  const linkedInApiKey = await storage.getSetting("linkedin_api_key", userId);
   const jsearchRapidApiHost = await storage.getSetting("jsearch_rapidapi_host", userId);
-  const linkedInRapidApiHost = await storage.getSetting("linkedin_rapidapi_host", userId);
+  const adzunaAppId = await storage.getSetting("adzuna_app_id", userId);
+  const adzunaAppKey = await storage.getSetting("adzuna_app_key", userId);
+  
+  // Get Adzuna-specific search parameters
+  const adzunaMaxDaysOld = await storage.getSetting("adzuna_max_days_old", userId);
+  const adzunaSalaryMin = await storage.getSetting("adzuna_salary_min", userId);
+  const adzunaSalaryMax = await storage.getSetting("adzuna_salary_max", userId);
+  const adzunaFullTime = await storage.getSetting("adzuna_full_time", userId);
+  const adzunaPartTime = await storage.getSetting("adzuna_part_time", userId);
+  const adzunaContract = await storage.getSetting("adzuna_contract", userId);
+  const adzunaPermanent = await storage.getSetting("adzuna_permanent", userId);
+  const adzunaDistance = await storage.getSetting("adzuna_distance", userId);
+  const adzunaWhatAnd = await storage.getSetting("adzuna_what_and", userId);
+  const adzunaWhatPhrase = await storage.getSetting("adzuna_what_phrase", userId);
+  const adzunaWhatExclude = await storage.getSetting("adzuna_what_exclude", userId);
+  const adzunaTitleOnly = await storage.getSetting("adzuna_title_only", userId);
 
   // Filter out excluded keywords
   const filterJob = (job: InsertJob): boolean => {
@@ -84,8 +90,9 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
   // Log the provider preference for debugging
   console.log(`[Scraper] Job search provider preference: "${jobSearchProviderPreference}"`);
   
-  // Scrape from JSearch (ONLY if preference is "auto" or "jsearch", NOT if "linkedin")
-  const shouldUseJSearch = (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "jsearch") && jobSearchProviderPreference !== "linkedin";
+  // Scrape from JSearch (ONLY if preference is "auto" or "jsearch", NOT if "adzuna")
+  const shouldUseJSearch = (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "jsearch") 
+    && jobSearchProviderPreference !== "adzuna";
   console.log(`[Scraper] Should use JSearch: ${shouldUseJSearch} (preference: "${jobSearchProviderPreference}")`);
   
   if (shouldUseJSearch && jsearchApiKey?.value) {
@@ -144,73 +151,92 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
     }
   }
 
-  // Scrape from LinkedIn (ONLY if preference is "auto" or "linkedin", NOT if "jsearch")
-  // TEMPORARILY DISABLED: ActiveJobsDB API is not working
-  const activeJobsDBEnabled = false; // Set to true when ActiveJobsDB is fixed
-  const shouldUseLinkedIn = activeJobsDBEnabled && (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "linkedin") && jobSearchProviderPreference !== "jsearch";
-  console.log(`[Scraper] Should use LinkedIn (ActiveJobsDB): ${shouldUseLinkedIn} (preference: "${jobSearchProviderPreference}", enabled: ${activeJobsDBEnabled})`);
+  // Scrape from Adzuna (ONLY if preference is "auto" or "adzuna", NOT if "jsearch")
+  const shouldUseAdzuna = (jobSearchProviderPreference === "auto" || jobSearchProviderPreference === "adzuna") 
+    && jobSearchProviderPreference !== "jsearch";
+  console.log(`[Scraper] Should use Adzuna: ${shouldUseAdzuna} (preference: "${jobSearchProviderPreference}")`);
   
-  if (shouldUseLinkedIn && linkedInApiKey?.value) {
+  if (shouldUseAdzuna && adzunaAppId?.value && adzunaAppKey?.value) {
     try {
-      console.log(`Starting ActiveJobsDB scrape (${linkedInTimePeriod})...`);
+      console.log(`Starting Adzuna scrape...`);
       
-      // Convert country codes to location names for LinkedIn
-      // LinkedIn prefers full names like "United States" instead of "US"
-      const countryCodeToName: Record<string, string> = {
-        "US": "United States",
-        "CA": "Canada",
-        "GB": "United Kingdom",
-        "AU": "Australia",
-        "DE": "Germany",
-        "FR": "France",
-        "ES": "Spain",
-        "IT": "Italy",
-        "NL": "Netherlands",
-        "BE": "Belgium",
-        "CH": "Switzerland",
-        "SE": "Sweden",
-        "NO": "Norway",
-        "DK": "Denmark",
-        "FI": "Finland",
-        "PL": "Poland",
-        "PT": "Portugal",
-        "IE": "Ireland",
-        "AT": "Austria",
-        "JP": "Japan",
-        "KR": "South Korea",
-        "SG": "Singapore",
-        "IN": "India",
-        "CN": "China",
-        "BR": "Brazil",
-        "MX": "Mexico",
-        "AR": "Argentina",
-        "CL": "Chile",
-        "ZA": "South Africa",
-        "NZ": "New Zealand",
-      };
+      // Build Adzuna options from settings
+      const adzunaOptions: import("./adzuna").AdzunaScrapeOptions = {};
       
-      // Use provided locationFilter or convert country codes
-      const linkedInLocation = locationFilter || 
-        (countryCodes.length > 0 
-          ? countryCodeToName[countryCodes[0].toUpperCase()] || countryCodes[0]
-          : undefined);
+      if (adzunaMaxDaysOld?.value) {
+        const maxDays = parseInt(adzunaMaxDaysOld.value);
+        if (!isNaN(maxDays)) {
+          adzunaOptions.maxDaysOld = maxDays;
+        }
+      } else {
+        // Fallback to postedAtMaxAgeDays if maxDaysOld not set
+        adzunaOptions.maxDaysOld = postedAtMaxAgeDays;
+      }
       
-      const linkedInJobs = await scrapeLinkedIn(
+      if (adzunaSalaryMin?.value) {
+        const salaryMin = parseInt(adzunaSalaryMin.value);
+        if (!isNaN(salaryMin)) {
+          adzunaOptions.salaryMin = salaryMin;
+        }
+      }
+      
+      if (adzunaSalaryMax?.value) {
+        const salaryMax = parseInt(adzunaSalaryMax.value);
+        if (!isNaN(salaryMax)) {
+          adzunaOptions.salaryMax = salaryMax;
+        }
+      }
+      
+      if (adzunaFullTime?.value === "true") {
+        adzunaOptions.fullTime = true;
+      }
+      
+      if (adzunaPartTime?.value === "true") {
+        adzunaOptions.partTime = true;
+      }
+      
+      if (adzunaContract?.value === "true") {
+        adzunaOptions.contract = true;
+      }
+      
+      if (adzunaPermanent?.value === "true") {
+        adzunaOptions.permanent = true;
+      }
+      
+      if (adzunaDistance?.value) {
+        const distance = parseInt(adzunaDistance.value);
+        if (!isNaN(distance)) {
+          adzunaOptions.distance = distance;
+        }
+      }
+      
+      if (adzunaWhatAnd?.value) {
+        adzunaOptions.whatAnd = adzunaWhatAnd.value;
+      }
+      
+      if (adzunaWhatPhrase?.value) {
+        adzunaOptions.whatPhrase = adzunaWhatPhrase.value;
+      }
+      
+      if (adzunaWhatExclude?.value) {
+        adzunaOptions.whatExclude = adzunaWhatExclude.value;
+      }
+      
+      if (adzunaTitleOnly?.value) {
+        adzunaOptions.titleOnly = adzunaTitleOnly.value;
+      }
+      
+      const adzunaJobs = await scrapeAdzuna(
         jobTitles,
-        linkedInLocation,
-        linkedInApiKey.value,
-        linkedInLimit, // No hard limit for LinkedIn
-        linkedInTimePeriod,
-        undefined, // titleFilter
-        undefined, // descriptionFilter
-        undefined, // typeFilter
-        undefined, // remote
-        undefined, // seniorityFilter
-        undefined, // industryFilter
-        linkedInRapidApiHost?.value // rapidApiHost
+        primaryCountryCode,
+        adzunaAppId.value,
+        adzunaAppKey.value,
+        limit, // Use the provided limit
+        undefined, // location (optional)
+        adzunaOptions
       );
       
-      const filteredJobs = linkedInJobs.filter(filterJob);
+      const filteredJobs = adzunaJobs.filter(filterJob);
       let jobsAdded = 0;
       
       for (const job of filteredJobs) {
@@ -227,35 +253,35 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
             });
           }
         } catch (error) {
-          console.error("Error saving LinkedIn job:", error);
+          console.error("Error saving Adzuna job:", error);
         }
       }
       
       const { activityLogger } = await import("../logger");
       if (jobsAdded > 0) {
-        await activityLogger.info(`ActiveJobsDB scraper: ${jobsAdded} jobs added`, { 
-          source: "ActiveJobsDB", 
-          timePeriod: linkedInTimePeriod,
-          jobsAdded 
-        }, userId);
+        await activityLogger.info(`Adzuna scraper: ${jobsAdded} jobs added`, { source: "Adzuna", jobsAdded }, userId);
       }
       
       results.push({
-        source: "ActiveJobsDB",
-        jobsFound: linkedInJobs.length,
+        source: "Adzuna",
+        jobsFound: adzunaJobs.length,
         jobsAdded: jobsAdded,
         errors: [],
       });
+      
+      console.log(`Adzuna scrape complete: ${jobsAdded} jobs added`);
     } catch (error) {
+      console.error("Error scraping Adzuna:", error);
       results.push({
-        source: "ActiveJobsDB",
+        source: "Adzuna",
         jobsFound: 0,
         jobsAdded: 0,
         errors: [error instanceof Error ? error.message : "Unknown error"],
       });
     }
+  } else {
+    console.log(`Skipping Adzuna (preference: "${jobSearchProviderPreference}", credentials: ${adzunaAppId?.value && adzunaAppKey?.value ? "provided" : "missing"})`);
   }
 
   return results;
 }
-

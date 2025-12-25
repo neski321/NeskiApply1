@@ -91,10 +91,10 @@ export default function Dashboard() {
     <Layout>
       <div className="flex flex-col gap-8">
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Mission Control</h1>
-            <p className="text-muted-foreground mt-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Mission Control</h1>
+            <p className="text-sm sm:text-base text-muted-foreground mt-1">
               {statsLoading ? (
                 "Loading..."
               ) : stats ? (
@@ -104,15 +104,16 @@ export default function Dashboard() {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
              <Button 
                variant="outline" 
-               className="gap-2 h-9" 
+               className="gap-2 h-9 text-sm sm:text-base" 
                onClick={handleSync}
                disabled={syncMutation.isPending}
              >
               <RefreshCcw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-              {syncMutation.isPending ? "Syncing..." : "Sync Now"}
+              <span className="hidden sm:inline">{syncMutation.isPending ? "Syncing..." : "Sync Now"}</span>
+              <span className="sm:hidden">{syncMutation.isPending ? "Sync..." : "Sync"}</span>
              </Button>
           </div>
         </div>
@@ -187,9 +188,9 @@ export default function Dashboard() {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
           {/* Main Feed Area */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -219,16 +220,16 @@ export default function Dashboard() {
           </div>
 
           {/* Right Column: Charts & Quick Filters */}
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6 min-w-0">
              <Card className="bg-card/50 border-border/50">
                <CardHeader>
-                 <CardTitle className="flex items-center gap-2 text-base">
-                   <TrendingUp className="h-4 w-4 text-primary" />
-                   Application Velocity
+                 <CardTitle className="flex items-center gap-2 text-sm md:text-base">
+                   <TrendingUp className="h-4 w-4 text-primary flex-shrink-0" />
+                   <span className="truncate">Application Velocity</span>
                  </CardTitle>
                </CardHeader>
                <CardContent>
-                 <div className="h-[200px] w-full">
+                 <div className="h-[180px] sm:h-[200px] w-full min-h-0">
                    <ResponsiveContainer width="100%" height="100%">
                      <AreaChart data={chartData}>
                        <defs>

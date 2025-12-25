@@ -29,7 +29,7 @@ export default function ATSAnalyzer() {
   const jobId = jobIdParam ? parseInt(jobIdParam) : null;
 
   // Load existing analysis if jobId is provided
-  const { data: existingAnalysis, isLoading: isLoadingAnalysis } = useQuery({
+  const { data: existingAnalysis, isLoading: isLoadingAnalysis, error: analysisError } = useQuery({
     queryKey: ["atsAnalysis", jobId],
     queryFn: () => {
       if (!jobId) return null;
@@ -37,27 +37,29 @@ export default function ATSAnalyzer() {
     },
     enabled: !!jobId,
     retry: false,
-    onSuccess: (data) => {
-      if (data) {
-        setAnalysisResult(data);
-        setJobTitle(data.jobTitle);
-        setJobCompany(data.jobCompany || "");
-        setJobDescription(data.jobDescription);
-        toast({
-          title: "Analysis loaded",
-          description: "Showing existing analysis for this job.",
-        });
-      }
-    },
-    onError: (error: Error) => {
-      // If analysis not found, try to load job details
-      if (error.message.includes("not found") && jobId) {
-        loadJobDetails(jobId);
-      }
-    },
   });
 
+  // Sync existing analysis data to state when it loads
+  useEffect(() => {
+    if (existingAnalysis) {
+      setAnalysisResult(existingAnalysis);
+      setJobTitle(existingAnalysis.jobTitle);
+      setJobCompany(existingAnalysis.jobCompany || "");
+      setJobDescription(existingAnalysis.jobDescription);
+      toast({
+        title: "Analysis loaded",
+        description: "Showing existing analysis for this job.",
+      });
+    }
+  }, [existingAnalysis]);
+
   // Load job details if analysis doesn't exist
+  useEffect(() => {
+    if (jobId && analysisError && analysisError.message.includes("not found")) {
+      loadJobDetails(jobId);
+    }
+  }, [jobId, analysisError]);
+
   const loadJobDetails = async (jobId: number) => {
     try {
       const jobs = await getJobs({});
@@ -120,6 +122,7 @@ export default function ATSAnalyzer() {
       jobTitle: jobTitle || "Untitled Job",
       jobCompany,
       jobDescription,
+      jobId: jobId || undefined,
     });
   };
 
@@ -183,10 +186,15 @@ export default function ATSAnalyzer() {
                   className="w-full mt-2 gap-2 shadow-[0_0_20px_-5px_var(--color-primary)]" 
                   onClick={handleAnalyze}
                   disabled={analyzeMutation.isPending || !jobDescription || resumes.length === 0}
+                  variant={existingAnalysis ? "outline" : "default"}
                 >
                   {analyzeMutation.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" /> Analyzing with AI...
+                    </>
+                  ) : existingAnalysis ? (
+                    <>
+                      <Search className="h-4 w-4" /> Re-analyze Job
                     </>
                   ) : (
                     <>
@@ -194,6 +202,12 @@ export default function ATSAnalyzer() {
                     </>
                   )}
                 </Button>
+                
+                {existingAnalysis && (
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Viewing existing analysis below. Click "Re-analyze Job" to create a new analysis.
+                  </p>
+                )}
                 
                 {resumes.length === 0 && (
                   <p className="text-sm text-destructive text-center">

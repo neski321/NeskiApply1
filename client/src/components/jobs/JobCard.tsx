@@ -43,8 +43,8 @@ export function JobCard({ job }: { job: Job }) {
     window.location.href = `/ats-analyzer?jobId=${job.id}`;
   };
   return (
-    <Card className="group relative overflow-hidden border-border/50 bg-card/50 hover:bg-card/80 transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
-      <div className="p-5 flex items-start gap-5">
+    <Card className="group relative overflow-hidden border-border/50 bg-card/50 hover:bg-card/80 transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 md:pb-16">
+      <div className="p-4 md:p-5 flex items-start gap-4 md:gap-5">
         {/* Match Score */}
         <div className="flex-shrink-0 pt-1">
           <MatchRing score={job.matchScore || 0} size="md" />
@@ -52,29 +52,29 @@ export function JobCard({ job }: { job: Job }) {
 
         {/* Content */}
         <div className="flex-1 min-w-0 space-y-3">
-          <div className="flex justify-between items-start">
-            <div>
-              <h3 className="font-bold text-lg leading-tight group-hover:text-primary transition-colors truncate pr-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-base sm:text-lg leading-tight group-hover:text-primary transition-colors">
                 {job.title}
               </h3>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
-                <div className="flex items-center gap-1">
-                  <Building2 className="h-3.5 w-3.5" />
-                  {job.company}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground mt-1">
+                <div className="flex items-center gap-1 min-w-0">
+                  <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{job.company}</span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {job.location}
+                <div className="flex items-center gap-1 min-w-0">
+                  <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="truncate">{job.location}</span>
                 </div>
                 {job.postedDate && (
                   <div className="flex items-center gap-1">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {job.postedDate}
+                    <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{job.postedDate}</span>
                   </div>
                 )}
               </div>
             </div>
-            <Badge variant={job.status === "pending" ? "outline" : "secondary"} className="capitalize font-mono text-xs">
+            <Badge variant={job.status === "pending" ? "outline" : "secondary"} className="capitalize font-mono text-xs flex-shrink-0 self-start sm:self-auto">
               {job.status}
             </Badge>
           </div>
@@ -99,12 +99,12 @@ export function JobCard({ job }: { job: Job }) {
         </div>
       </div>
 
-      {/* Actions Overlay - appears on hover or always visible on mobile */}
-      <div className="absolute bottom-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 bg-gradient-to-l from-card via-card/90 to-transparent pl-12">
+      {/* Actions - always visible on desktop, visible on mobile */}
+      <div className="mt-4 pt-4 border-t border-border/50 md:border-0 md:mt-0 md:pt-0 md:absolute md:bottom-0 md:right-0 md:p-4 md:bg-gradient-to-l md:from-card md:via-card/90 md:to-transparent md:pl-12 flex flex-col sm:flex-row gap-2 px-4 md:px-0 pb-4 md:pb-0">
         <Button 
           size="sm" 
           variant="secondary" 
-          className="h-8"
+          className="h-9 md:h-8 w-full sm:w-auto"
           onClick={handleViewAnalysis}
           disabled={updateStatusMutation.isPending}
         >
@@ -112,7 +112,7 @@ export function JobCard({ job }: { job: Job }) {
         </Button>
         <Button 
           size="sm" 
-          className="h-8 gap-1"
+          className="h-9 md:h-8 gap-1 w-full sm:w-auto"
           onClick={handleApply}
           disabled={updateStatusMutation.isPending || job.status === "applied"}
         >

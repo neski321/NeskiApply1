@@ -14,8 +14,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
-// TEMPORARILY DISABLED: ActiveJobsDB API is not working
-const ACTIVEJOBSDB_ENABLED = false;
 
 export default function Settings() {
   const { toast } = useToast();
@@ -52,10 +50,20 @@ export default function Settings() {
     geminiApiKey: "",
     jsearchApiKey: "",
     jsearchRapidApiHost: "",
-    linkedinApiKey: "",
-    linkedinRapidApiHost: "",
-    linkedinTimePeriod: "both",
-    linkedinLocationFilter: "",
+    adzunaAppId: "",
+    adzunaAppKey: "",
+    adzunaMaxDaysOld: "",
+    adzunaSalaryMin: "",
+    adzunaSalaryMax: "",
+    adzunaFullTime: false,
+    adzunaPartTime: false,
+    adzunaContract: false,
+    adzunaPermanent: false,
+    adzunaDistance: "",
+    adzunaWhatAnd: "",
+    adzunaWhatPhrase: "",
+    adzunaWhatExclude: "",
+    adzunaTitleOnly: "",
     discordWebhook: "",
   });
 
@@ -124,10 +132,10 @@ export default function Settings() {
       // Use first country code if multiple provided (JSearch uses single country)
       const primaryCountryCode = countryCodes ? countryCodes.split(",")[0].trim().toUpperCase() : "CA";
       
-      // Reset job search provider preference if ActiveJobsDB is disabled and preference is set to "linkedin"
+      // Reset job search provider preference to valid options
       let jobSearchProviderPreference = settingsMap.job_search_provider_preference || "auto";
-      if (!ACTIVEJOBSDB_ENABLED && jobSearchProviderPreference === "linkedin") {
-        jobSearchProviderPreference = "jsearch"; // Fallback to JSearch only
+      if (jobSearchProviderPreference !== "auto" && jobSearchProviderPreference !== "jsearch" && jobSearchProviderPreference !== "adzuna") {
+        jobSearchProviderPreference = "auto"; // Fallback to auto
       }
       
       setFormData({
@@ -151,10 +159,20 @@ export default function Settings() {
         geminiApiKey: settingsMap.gemini_api_key || "",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
         jsearchRapidApiHost: settingsMap.jsearch_rapidapi_host || "",
-        linkedinApiKey: settingsMap.linkedin_api_key || "",
-        linkedinRapidApiHost: settingsMap.linkedin_rapidapi_host || "",
-        linkedinTimePeriod: settingsMap.linkedin_time_period || "both",
-        linkedinLocationFilter: settingsMap.linkedin_location_filter || "",
+        adzunaAppId: settingsMap.adzuna_app_id || "",
+        adzunaAppKey: settingsMap.adzuna_app_key || "",
+        adzunaMaxDaysOld: settingsMap.adzuna_max_days_old || "",
+        adzunaSalaryMin: settingsMap.adzuna_salary_min || "",
+        adzunaSalaryMax: settingsMap.adzuna_salary_max || "",
+        adzunaFullTime: settingsMap.adzuna_full_time === "true",
+        adzunaPartTime: settingsMap.adzuna_part_time === "true",
+        adzunaContract: settingsMap.adzuna_contract === "true",
+        adzunaPermanent: settingsMap.adzuna_permanent === "true",
+        adzunaDistance: settingsMap.adzuna_distance || "",
+        adzunaWhatAnd: settingsMap.adzuna_what_and || "",
+        adzunaWhatPhrase: settingsMap.adzuna_what_phrase || "",
+        adzunaWhatExclude: settingsMap.adzuna_what_exclude || "",
+        adzunaTitleOnly: settingsMap.adzuna_title_only || "",
         discordWebhook: settingsMap.discord_webhook || "",
       });
     }
@@ -245,10 +263,20 @@ export default function Settings() {
       gemini_api_key: formData.geminiApiKey,
       jsearch_api_key: formData.jsearchApiKey,
       jsearch_rapidapi_host: formData.jsearchRapidApiHost,
-      linkedin_api_key: formData.linkedinApiKey,
-      linkedin_rapidapi_host: formData.linkedinRapidApiHost,
-      linkedin_time_period: formData.linkedinTimePeriod,
-      linkedin_location_filter: formData.linkedinLocationFilter,
+      adzuna_app_id: formData.adzunaAppId,
+      adzuna_app_key: formData.adzunaAppKey,
+      adzuna_max_days_old: formData.adzunaMaxDaysOld,
+      adzuna_salary_min: formData.adzunaSalaryMin,
+      adzuna_salary_max: formData.adzunaSalaryMax,
+      adzuna_full_time: formData.adzunaFullTime.toString(),
+      adzuna_part_time: formData.adzunaPartTime.toString(),
+      adzuna_contract: formData.adzunaContract.toString(),
+      adzuna_permanent: formData.adzunaPermanent.toString(),
+      adzuna_distance: formData.adzunaDistance,
+      adzuna_what_and: formData.adzunaWhatAnd,
+      adzuna_what_phrase: formData.adzunaWhatPhrase,
+      adzuna_what_exclude: formData.adzunaWhatExclude,
+      adzuna_title_only: formData.adzunaTitleOnly,
       discord_webhook: formData.discordWebhook,
     };
 
@@ -272,25 +300,26 @@ export default function Settings() {
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto space-y-8 pb-10">
-        <div className="flex items-center justify-between border-b border-border pb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Configuration</h1>
-            <p className="text-muted-foreground mt-1">
+      <div className="max-w-4xl mx-auto space-y-6 md:space-y-8 pb-10 w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold">Configuration</h1>
+            <p className="text-sm sm:text-base text-muted-foreground mt-1">
               Manage API keys, search parameters, and automation rules.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0">
             <Button 
               variant="outline" 
-              className="gap-2" 
+              className="gap-2 text-sm sm:text-base" 
               onClick={() => cronMutation.mutate()} 
               disabled={cronMutation.isPending}
             >
               <Play className={`h-4 w-4 ${cronMutation.isPending ? "animate-pulse" : ""}`} />
-              {cronMutation.isPending ? "Running..." : "Run Cron Job Now"}
+              <span className="hidden sm:inline">{cronMutation.isPending ? "Running..." : "Run Cron Job Now"}</span>
+              <span className="sm:hidden">{cronMutation.isPending ? "Running..." : "Run Cron"}</span>
             </Button>
-            <Button className="gap-2" onClick={handleSave} disabled={isSaving}>
+            <Button className="gap-2 text-sm sm:text-base" onClick={handleSave} disabled={isSaving}>
               {isSaving ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               {isSaving ? "Saved!" : "Save Changes"}
             </Button>
@@ -298,10 +327,10 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="job-search" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="job-search">Job Search</TabsTrigger>
-            <TabsTrigger value="api-keys">API Keys</TabsTrigger>
-            <TabsTrigger value="automation">Automation</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 text-xs sm:text-sm">
+            <TabsTrigger value="job-search" className="text-xs sm:text-sm">Job Search</TabsTrigger>
+            <TabsTrigger value="api-keys" className="text-xs sm:text-sm">API Keys</TabsTrigger>
+            <TabsTrigger value="automation" className="text-xs sm:text-sm">Automation</TabsTrigger>
           </TabsList>
 
           {/* Job Search Tab */}
@@ -328,20 +357,19 @@ export default function Settings() {
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Auto (JSearch{ACTIVEJOBSDB_ENABLED ? " + ActiveJobsDB" : ""})</SelectItem>
+                      <SelectItem value="auto">Auto (JSearch + Adzuna)</SelectItem>
                       <SelectItem value="jsearch">JSearch Only</SelectItem>
-                      {ACTIVEJOBSDB_ENABLED && <SelectItem value="linkedin">ActiveJobsDB Only</SelectItem>}
+                      <SelectItem value="adzuna">Adzuna Only</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {formData.jobSearchProviderPreference === "auto" 
-                      ? `Automatically uses JSearch${ACTIVEJOBSDB_ENABLED ? " and ActiveJobsDB" : ""} APIs to fetch jobs from multiple sources.`
+                      ? `Automatically uses JSearch and Adzuna APIs to fetch jobs from multiple sources.`
                       : formData.jobSearchProviderPreference === "jsearch"
-                      ? "Only uses JSearch API. No ActiveJobsDB jobs will be fetched."
-                      : "Only uses ActiveJobsDB API. No JSearch jobs will be fetched."}
-                    {!ACTIVEJOBSDB_ENABLED && formData.jobSearchProviderPreference === "linkedin" && (
-                      <span className="text-destructive"> ActiveJobsDB is currently disabled.</span>
-                    )}
+                      ? "Only uses JSearch API. Adzuna will be skipped."
+                      : formData.jobSearchProviderPreference === "adzuna"
+                      ? "Only uses Adzuna API. JSearch will be skipped."
+                      : "Select a job search provider preference."}
                   </p>
                 </div>
               </CardContent>
@@ -451,76 +479,6 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            {/* ActiveJobsDB API Section */}
-            {ACTIVEJOBSDB_ENABLED && (
-            <Card className="bg-card/50 border-border/50">
-              <CardHeader>
-                <CardTitle>ActiveJobsDB API Parameters</CardTitle>
-                <CardDescription>
-                  Configure search parameters for ActiveJobsDB API. These map directly to ActiveJobsDB API query parameters.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    Job Titles (title_filter)
-                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: title_filter</span>
-                    <span className="text-[10px] font-semibold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">Required</span>
-                  </Label>
-                  <Input 
-                    value={formData.jobTitles}
-                    onChange={(e) => setFormData({ ...formData, jobTitles: e.target.value })}
-                    placeholder="Software Developer, Backend Developer, Full Stack Developer"
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Comma-separated job titles. These will be used as title_filter. Titles are automatically quoted for phrase matching. <strong>Required for ActiveJobsDB API.</strong>
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    Time Period
-                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Which Jobs to Fetch</span>
-                    <span className="text-[10px] font-semibold text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">Required</span>
-                  </Label>
-                  <Select
-                    value={formData.linkedinTimePeriod}
-                    onValueChange={(value) => setFormData({ ...formData, linkedinTimePeriod: value })}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select time period" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="24h">Last 24 Hours</SelectItem>
-                      <SelectItem value="7d">Last 7 Days</SelectItem>
-                      <SelectItem value="both">Both (24h + 7d)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Choose which time period to fetch jobs from. "Both" will fetch from both 24-hour and 7-day endpoints. <strong>Required for ActiveJobsDB API.</strong>
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    Location Filter (location_filter)
-                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: location_filter</span>
-                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
-                  </Label>
-                  <Input 
-                    type="text" 
-                    placeholder="Canada, Toronto, United States OR New York" 
-                    value={formData.linkedinLocationFilter}
-                    onChange={(e) => setFormData({ ...formData, linkedinLocationFilter: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Filter jobs by location. Use full names (e.g., "United States" not "US"). You can use OR to search multiple locations: "Dubai OR Netherlands OR Belgium". Leave empty to use country code from JSearch parameters. Optional parameter.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-            )}
 
             {/* Common Filters */}
             <Card className="bg-card/50 border-border/50">
@@ -700,52 +658,233 @@ export default function Settings() {
               </CardContent>
             </Card>
 
-            {/* ActiveJobsDB API Section */}
-            {ACTIVEJOBSDB_ENABLED && (
+            {/* Adzuna API Section */}
             <Card className="bg-card/50 border-border/50">
               <CardHeader>
-                <CardTitle>ActiveJobsDB API</CardTitle>
-                <CardDescription>Configure ActiveJobsDB API for scraping active job postings from ATS platforms.</CardDescription>
+                <CardTitle>Adzuna API</CardTitle>
+                <CardDescription>Configure Adzuna API for job scraping from multiple sources.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    ActiveJobsDB API Key (RapidAPI)
-                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Required</span>
-                  </Label>
-                  <Input 
-                    type="password" 
-                    placeholder="Your RapidAPI key for ActiveJobsDB" 
-                    value={formData.linkedinApiKey}
-                    onChange={(e) => setFormData({ ...formData, linkedinApiKey: e.target.value })}
+                  <Label htmlFor="adzunaAppId">Adzuna App ID</Label>
+                  <Input
+                    id="adzunaAppId"
+                    placeholder="Your Adzuna App ID" 
+                    value={formData.adzunaAppId}
+                    onChange={(e) => setFormData({ ...formData, adzunaAppId: e.target.value })}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    ActiveJobsDB API (via RapidAPI) provides access to active job postings from ATS platforms from the past 24 hours and 7 days. Get your API key from{" "}
-                    <a href="https://rapidapi.com/hub" target="_blank" rel="noopener noreferrer" className="text-primary underline">
-                      RapidAPI Hub
+                  <CardDescription className="text-xs">
+                    Your Adzuna application ID. Get your credentials from{" "}
+                    <a href="https://developer.adzuna.com/" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      Adzuna Developer Portal
                     </a>
-                    . Search for "ActiveJobsDB" API.
+                    .
+                  </CardDescription>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzunaAppKey">Adzuna App Key</Label>
+                  <Input
+                    id="adzunaAppKey"
+                    type="password"
+                    placeholder="Your Adzuna App Key" 
+                    value={formData.adzunaAppKey}
+                    onChange={(e) => setFormData({ ...formData, adzunaAppKey: e.target.value })}
+                  />
+                  <CardDescription className="text-xs">
+                    Your Adzuna application key. Both App ID and App Key are required for Adzuna API access.
+                  </CardDescription>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Adzuna API Parameters Section */}
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Adzuna API Parameters</CardTitle>
+                <CardDescription>
+                  Configure search parameters for Adzuna API. These map directly to Adzuna API query parameters.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Max Days Old (max_days_old)
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: max_days_old</span>
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      placeholder="7"
+                      value={formData.adzunaMaxDaysOld}
+                      onChange={(e) => setFormData({ ...formData, adzunaMaxDaysOld: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Maximum age of job postings in days. Leave empty to include all jobs.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Distance (km) (distance)
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: distance</span>
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      placeholder="5"
+                      value={formData.adzunaDistance}
+                      onChange={(e) => setFormData({ ...formData, adzunaDistance: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Distance in kilometers from location center. Default: 5km.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Minimum Salary (salary_min)
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: salary_min</span>
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      placeholder="50000"
+                      value={formData.adzunaSalaryMin}
+                      onChange={(e) => setFormData({ ...formData, adzunaSalaryMin: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Minimum salary filter. Currency depends on country.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Maximum Salary (salary_max)
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: salary_max</span>
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      placeholder="100000"
+                      value={formData.adzunaSalaryMax}
+                      onChange={(e) => setFormData({ ...formData, adzunaSalaryMax: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Maximum salary filter. Currency depends on country.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Job Type Filters</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="adzunaFullTime"
+                        checked={formData.adzunaFullTime}
+                        onCheckedChange={(checked) => setFormData({ ...formData, adzunaFullTime: checked })}
+                      />
+                      <Label htmlFor="adzunaFullTime" className="text-sm">Full Time</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="adzunaPartTime"
+                        checked={formData.adzunaPartTime}
+                        onCheckedChange={(checked) => setFormData({ ...formData, adzunaPartTime: checked })}
+                      />
+                      <Label htmlFor="adzunaPartTime" className="text-sm">Part Time</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="adzunaContract"
+                        checked={formData.adzunaContract}
+                        onCheckedChange={(checked) => setFormData({ ...formData, adzunaContract: checked })}
+                      />
+                      <Label htmlFor="adzunaContract" className="text-sm">Contract</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="adzunaPermanent"
+                        checked={formData.adzunaPermanent}
+                        onCheckedChange={(checked) => setFormData({ ...formData, adzunaPermanent: checked })}
+                      />
+                      <Label htmlFor="adzunaPermanent" className="text-sm">Permanent</Label>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Filter jobs by employment type. You can select multiple types.
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
-                    ActiveJobsDB RapidAPI Host
+                    Keywords - All Must Match (what_and)
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: what_and</span>
                     <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
                   </Label>
-                  <Input 
-                    type="text" 
-                    placeholder="active-jobs-db.p.rapidapi.com" 
-                    value={formData.linkedinRapidApiHost}
-                    onChange={(e) => setFormData({ ...formData, linkedinRapidApiHost: e.target.value })}
+                  <Input
+                    placeholder="javascript react typescript"
+                    value={formData.adzunaWhatAnd}
+                    onChange={(e) => setFormData({ ...formData, adzunaWhatAnd: e.target.value })}
                   />
                   <p className="text-xs text-muted-foreground">
-                    RapidAPI host for ActiveJobsDB API. Leave empty to use default: "active-jobs-db.p.rapidapi.com". Only change if you're using a different RapidAPI endpoint.
+                    Space-separated keywords. All keywords must be found in the job.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Exact Phrase (what_phrase)
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: what_phrase</span>
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                  </Label>
+                  <Input
+                    placeholder="senior software engineer"
+                    value={formData.adzunaWhatPhrase}
+                    onChange={(e) => setFormData({ ...formData, adzunaWhatPhrase: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    An entire phrase that must be found in the description or title.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Exclude Keywords (what_exclude)
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: what_exclude</span>
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                  </Label>
+                  <Input
+                    placeholder="senior lead principal"
+                    value={formData.adzunaWhatExclude}
+                    onChange={(e) => setFormData({ ...formData, adzunaWhatExclude: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Space-separated keywords to exclude from search results.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Title Only Search (title_only)
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: title_only</span>
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Optional</span>
+                  </Label>
+                  <Input
+                    placeholder="developer engineer"
+                    value={formData.adzunaTitleOnly}
+                    onChange={(e) => setFormData({ ...formData, adzunaTitleOnly: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Space-separated keywords to search only in job titles.
                   </p>
                 </div>
               </CardContent>
             </Card>
-            )}
+
           </TabsContent>
 
           {/* Automation Tab */}
