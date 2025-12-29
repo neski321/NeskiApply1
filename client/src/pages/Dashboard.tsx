@@ -5,19 +5,41 @@ import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCi
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useMemo, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getJobs, getStats, syncJobs } from "@/lib/api";
+import { getJobs, getStats, syncJobs, getSettings } from "@/lib/api";
 
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Fetch real data
-  const { data: jobs = [], isLoading: jobsLoading } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: () => getJobs({ minMatchScore: 80 }),
+  // Fetch settings to get high priority match threshold
+  // Refetch on mount to ensure we get the latest settings
+  const { data: settings = [] } = useQuery({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+    refetchOnMount: true,
   });
+
+  // Get high priority match threshold from settings, default to 80
+  const highPriorityThreshold = useMemo(() => {
+    const thresholdSetting = settings.find(s => s.key === "high_priority_match_threshold");
+    return thresholdSetting ? parseInt(thresholdSetting.value) : 80;
+  }, [settings]);
+  
+  // Fetch real data
+  // Note: We fetch all jobs and filter client-side so that when threshold changes,
+  // existing jobs that now pass the threshold will appear immediately
+  const { data: allJobs = [], isLoading: jobsLoading } = useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => getJobs(),
+  });
+
+  // Filter jobs based on high priority threshold
+  const jobs = useMemo(() => {
+    return allJobs.filter(j => j.matchScore && j.matchScore >= highPriorityThreshold);
+  }, [allJobs, highPriorityThreshold]);
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["stats"],
@@ -48,9 +70,8 @@ export default function Dashboard() {
     },
   });
 
-  // Get top jobs (high match score, sorted by score)
+  // Get top jobs (already filtered, just sort by score and take top 5)
   const topJobs = jobs
-    .filter(j => j.matchScore && j.matchScore >= 80)
     .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
     .slice(0, 5);
 
@@ -208,7 +229,7 @@ export default function Dashboard() {
             ) : topJobs.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-muted-foreground">No high-priority matches found yet.</p>
-                <p className="text-sm text-muted-foreground mt-2">Jobs with 80%+ match score will appear here.</p>
+                <p className="text-sm text-muted-foreground mt-2">Jobs with {highPriorityThreshold}%+ match score will appear here.</p>
               </div>
             ) : (
               <div className="grid gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-forwards">

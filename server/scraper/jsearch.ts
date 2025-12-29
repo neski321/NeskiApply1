@@ -82,16 +82,38 @@ interface JSearchSearchResponse {
  * Endpoint: GET https://jsearch.p.rapidapi.com/search
  * Authentication: X-RapidAPI-Key and X-RapidAPI-Host headers
  */
+export interface JSearchScrapeOptions {
+  limit?: number;
+  datePosted?: string;
+  workFromHome?: boolean;
+  employmentTypes?: string;
+  language?: string;
+  jobRequirements?: string;
+  radius?: number;
+  excludeJobPublishers?: string;
+  page?: number;
+  numPages?: number;
+}
+
 export async function scrapeJSearch(
   jobTitles: string[],
   countryCode: string,
   apiKey?: string,
-  limit: number = 5,
-  datePosted: string = "week",
-  workFromHome?: boolean,
-  employmentTypes?: string,
+  options?: JSearchScrapeOptions,
   rapidApiHost?: string
 ): Promise<InsertJob[]> {
+  const {
+    limit = 5,
+    datePosted = "week",
+    workFromHome,
+    employmentTypes,
+    language,
+    jobRequirements,
+    radius,
+    excludeJobPublishers,
+    page = 1,
+    numPages,
+  } = options || {};
   const jobs: InsertJob[] = [];
   
   if (!apiKey) {
@@ -160,26 +182,42 @@ export async function scrapeJSearch(
     
     const query = queryParts.join(" ");
     
-    // Calculate number of pages needed (10 results per page)
-    const numPages = Math.ceil(limit / 10);
-    const actualNumPages = Math.min(numPages, 5); // Limit to 5 pages max (50 jobs)
+    // Calculate number of pages needed (10 results per page) if not specified
+    const actualNumPages = numPages || Math.ceil(limit / 10);
+    const finalNumPages = Math.min(actualNumPages, 50); // Limit to 50 pages max (500 jobs)
     
     // Build query parameters
     const params = new URLSearchParams({
       query: query,
-      page: "1",
-      num_pages: actualNumPages.toString(),
+      page: page.toString(),
+      num_pages: finalNumPages.toString(),
       country: normalizedCountryCode,
       date_posted: datePosted, // all, today, 3days, week, month
     });
     
     // Add optional parameters
+    if (language) {
+      params.append("language", language);
+    }
+    
     if (workFromHome !== undefined) {
       params.append("work_from_home", workFromHome ? "true" : "false");
     }
     
     if (employmentTypes) {
       params.append("employment_types", employmentTypes);
+    }
+    
+    if (jobRequirements) {
+      params.append("job_requirements", jobRequirements);
+    }
+    
+    if (radius !== undefined) {
+      params.append("radius", radius.toString());
+    }
+    
+    if (excludeJobPublishers) {
+      params.append("exclude_job_publishers", excludeJobPublishers);
     }
     
     const url = `https://${host}/search?${params.toString()}`;
@@ -199,7 +237,7 @@ export async function scrapeJSearch(
       const jobList = response?.data || [];
       
       if (Array.isArray(jobList)) {
-        for (const job of jobList.slice(0, limit)) {
+        for (const job of jobList) {
           if (jobs.length >= limit) break;
           
           // Extract company name

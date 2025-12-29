@@ -19,7 +19,12 @@ export async function executeDailyScraping(userId: string): Promise<{
     const countryCodesSetting = await storage.getSetting("country_codes", userId);
     const datePostedSetting = await storage.getSetting("date_posted", userId);
     const excludedKeywordsSetting = await storage.getSetting("excluded_keywords", userId);
-    const jobSearchProviderPreferenceSetting = await storage.getSetting("job_search_provider_preference", userId);
+    const workFromHomeSetting = await storage.getSetting("work_from_home", userId);
+    const employmentTypesSetting = await storage.getSetting("employment_types", userId);
+    const jsearchLanguageSetting = await storage.getSetting("jsearch_language", userId);
+    const jsearchJobRequirementsSetting = await storage.getSetting("jsearch_job_requirements", userId);
+    const jsearchRadiusSetting = await storage.getSetting("jsearch_radius", userId);
+    const jsearchExcludeJobPublishersSetting = await storage.getSetting("jsearch_exclude_job_publishers", userId);
 
     if (!jobTitlesSetting) {
       return {
@@ -63,15 +68,19 @@ export async function executeDailyScraping(userId: string): Promise<{
       ? excludedKeywordsSetting.value.split(",").map((k) => k.trim()).filter(Boolean)
       : [];
 
-    // Job search provider preference
-    const jobSearchProviderPreference = (jobSearchProviderPreferenceSetting?.value || "auto") as "auto" | "jsearch" | "adzuna";
+    // Parse JSearch-specific parameters
+    const workFromHome = workFromHomeSetting?.value === "true";
+    const employmentTypes = employmentTypesSetting?.value || undefined;
+    const language = jsearchLanguageSetting?.value || undefined;
+    const jobRequirements = jsearchJobRequirementsSetting?.value || undefined;
+    const radius = jsearchRadiusSetting?.value ? parseInt(jsearchRadiusSetting.value) : undefined;
+    const excludeJobPublishers = jsearchExcludeJobPublishersSetting?.value || undefined;
 
     // Log the activity
     await activityLogger.info("Daily cron job scraping started", {
       jobTitles: jobTitles.length,
       countryCode,
       datePosted,
-      jobSearchProviderPreference,
     }, userId);
 
     // Execute scraping
@@ -80,7 +89,12 @@ export async function executeDailyScraping(userId: string): Promise<{
       countryCodes: [countryCode],
       excludedKeywords,
       postedAtMaxAgeDays,
-      jobSearchProviderPreference,
+      workFromHome,
+      employmentTypes,
+      language,
+      jobRequirements,
+      radius,
+      excludeJobPublishers,
       userId,
     });
 

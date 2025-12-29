@@ -163,8 +163,12 @@ export async function updateJob(id: number, job: Partial<InsertJob>): Promise<Jo
 export async function deleteJob(id: number): Promise<void> {
   const response = await fetch(`/api/jobs/${id}`, {
     method: "DELETE",
+    credentials: "include",
   });
-  if (!response.ok) throw new Error("Failed to delete job");
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to delete job" }));
+    throw new Error(error.error || "Failed to delete job");
+  }
 }
 
 // ============ ATS ANALYSIS API ============
