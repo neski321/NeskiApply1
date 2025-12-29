@@ -216,8 +216,6 @@ export class DatabaseStorage implements IStorage {
       perplexity_api_key: "PERPLEXITY_API_KEY",
       gemini_api_key: "GEMINI_API_KEY",
       jsearch_api_key: "JSEARCH_API_KEY",
-      adzuna_app_id: "ADZUNA_APP_ID",
-      adzuna_app_key: "ADZUNA_APP_KEY",
       discord_webhook: "DISCORD_WEBHOOK_URL",
     };
 

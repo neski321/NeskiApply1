@@ -2,10 +2,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MatchRing } from "@/components/ui/match-ring";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import type { Job } from "@shared/schema";
-import { Building2, Calendar, MapPin, ChevronRight, ExternalLink } from "lucide-react";
+import { Building2, Calendar, MapPin, ChevronRight, ExternalLink, Trash2, Clock } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateJob } from "@/lib/api";
+import { updateJob, deleteJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 export function JobCard({ job }: { job: Job }) {
@@ -20,6 +32,25 @@ export function JobCard({ job }: { job: Job }) {
       toast({
         title: "Status updated",
         description: `Job status updated to ${status}`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: () => deleteJob(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: "Job deleted",
+        description: `"${job.title}" has been removed`,
       });
     },
     onError: (error: Error) => {
@@ -72,6 +103,12 @@ export function JobCard({ job }: { job: Job }) {
                     <span>{job.postedDate}</span>
                   </div>
                 )}
+                {job.createdAt && (
+                  <div className="flex items-center gap-1" title={new Date(job.createdAt).toLocaleString()}>
+                    <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>Scanned {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true })}</span>
+                  </div>
+                )}
               </div>
             </div>
             <Badge variant={job.status === "pending" ? "outline" : "secondary"} className="capitalize font-mono text-xs flex-shrink-0 self-start sm:self-auto">
@@ -100,13 +137,13 @@ export function JobCard({ job }: { job: Job }) {
       </div>
 
       {/* Actions - always visible on desktop, visible on mobile */}
-      <div className="mt-4 pt-4 border-t border-border/50 md:border-0 md:mt-0 md:pt-0 md:absolute md:bottom-0 md:right-0 md:p-4 md:bg-gradient-to-l md:from-card md:via-card/90 md:to-transparent md:pl-12 flex flex-col sm:flex-row gap-2 px-4 md:px-0 pb-4 md:pb-0">
+      <div className="mt-4 pt-4 border-t border-border/50 md:border-0 md:mt-0 md:pt-0 md:absolute md:bottom-0 md:right-0 md:pr-5 md:pb-4 md:bg-gradient-to-l md:from-card md:via-card/90 md:to-transparent md:pl-12 flex flex-col sm:flex-row gap-2 px-4 pb-4">
         <Button 
           size="sm" 
           variant="secondary" 
           className="h-9 md:h-8 w-full sm:w-auto"
           onClick={handleViewAnalysis}
-          disabled={updateStatusMutation.isPending}
+          disabled={updateStatusMutation.isPending || deleteJobMutation.isPending}
         >
           View Analysis
         </Button>
@@ -114,11 +151,42 @@ export function JobCard({ job }: { job: Job }) {
           size="sm" 
           className="h-9 md:h-8 gap-1 w-full sm:w-auto"
           onClick={handleApply}
-          disabled={updateStatusMutation.isPending || job.status === "applied"}
+          disabled={updateStatusMutation.isPending || deleteJobMutation.isPending || job.status === "applied"}
         >
           {job.status === "applied" ? "Applied" : "Apply Now"} 
           {job.status !== "applied" && <ExternalLink className="h-3 w-3" />}
         </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 md:h-8 gap-1.5 w-full sm:w-auto border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground flex-shrink-0"
+              disabled={updateStatusMutation.isPending || deleteJobMutation.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Delete</span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Job</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete "{job.title}" at {job.company}? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => deleteJobMutation.mutate()}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteJobMutation.isPending}
+              >
+                {deleteJobMutation.isPending ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Card>
   );

@@ -773,9 +773,12 @@ Return your response as JSON in this exact format:
       const countryCodesSetting = await storage.getSetting("country_codes", userId);
       const datePostedSetting = await storage.getSetting("date_posted", userId);
       const excludedKeywordsSetting = await storage.getSetting("excluded_keywords", userId);
-      const linkedInTimePeriodSetting = await storage.getSetting("linkedin_time_period", userId);
-      const linkedInLocationFilterSetting = await storage.getSetting("linkedin_location_filter", userId);
-      const jobSearchProviderPreferenceSetting = await storage.getSetting("job_search_provider_preference", userId);
+      const workFromHomeSetting = await storage.getSetting("work_from_home", userId);
+      const employmentTypesSetting = await storage.getSetting("employment_types", userId);
+      const jsearchLanguageSetting = await storage.getSetting("jsearch_language", userId);
+      const jsearchJobRequirementsSetting = await storage.getSetting("jsearch_job_requirements", userId);
+      const jsearchRadiusSetting = await storage.getSetting("jsearch_radius", userId);
+      const jsearchExcludeJobPublishersSetting = await storage.getSetting("jsearch_exclude_job_publishers", userId);
       
       if (!jobTitlesSetting) {
         return res.status(400).json({ 
@@ -817,13 +820,13 @@ Return your response as JSON in this exact format:
         ? excludedKeywordsSetting.value.split(",").map(k => k.trim()).filter(Boolean)
         : [];
       
-      // LinkedIn settings
-      const linkedInTimePeriod = (linkedInTimePeriodSetting?.value || "both") as "24h" | "7d" | "both";
-      const linkedInLocationFilter = linkedInLocationFilterSetting?.value || undefined;
-      
-      // Job search provider preference
-      const jobSearchProviderPreference = (jobSearchProviderPreferenceSetting?.value || "auto") as "auto" | "jsearch" | "adzuna";
-      console.log(`[Routes] Job search provider preference from settings: "${jobSearchProviderPreference}"`);
+      // Parse JSearch-specific parameters
+      const workFromHome = workFromHomeSetting?.value === "true";
+      const employmentTypes = employmentTypesSetting?.value || undefined;
+      const language = jsearchLanguageSetting?.value || undefined;
+      const jobRequirements = jsearchJobRequirementsSetting?.value || undefined;
+      const radius = jsearchRadiusSetting?.value ? parseInt(jsearchRadiusSetting.value) : undefined;
+      const excludeJobPublishers = jsearchExcludeJobPublishersSetting?.value || undefined;
       
       // Import scraper (dynamic import to avoid loading issues)
       const { scrapeJobs } = await import("./scraper/index");
@@ -833,8 +836,7 @@ Return your response as JSON in this exact format:
       await activityLogger.info("Job scraping started", { 
         jobTitles: jobTitles.length, 
         countryCode,
-        datePosted,
-        jobSearchProviderPreference
+        datePosted
       }, userId);
       
       scrapeJobs({
@@ -842,7 +844,12 @@ Return your response as JSON in this exact format:
         countryCodes: [countryCode], // Pass as array for compatibility
         excludedKeywords,
         postedAtMaxAgeDays,
-        jobSearchProviderPreference,
+        workFromHome,
+        employmentTypes,
+        language,
+        jobRequirements,
+        radius,
+        excludeJobPublishers,
         userId, // Pass userId to scraper
       }).then(async (results) => {
         const totalFound = results.reduce((sum, r) => sum + r.jobsFound, 0);

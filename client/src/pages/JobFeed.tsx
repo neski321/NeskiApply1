@@ -51,12 +51,6 @@ export default function JobFeed() {
       filtered = filtered.filter((job) => {
         if (sourceFilter === "jsearch") {
           return job.source === "JSearch";
-        } else if (sourceFilter === "linkedin-24h") {
-          return job.source === "ActiveJobsDB-24h";
-        } else if (sourceFilter === "linkedin-7d") {
-          return job.source === "ActiveJobsDB-7d";
-        } else if (sourceFilter === "linkedin") {
-          return job.source === "ActiveJobsDB-24h" || job.source === "ActiveJobsDB-7d";
         }
         return true;
       });
@@ -181,9 +175,6 @@ export default function JobFeed() {
                       <SelectContent>
                         <SelectItem value="all">All Sources</SelectItem>
                         <SelectItem value="jsearch">JSearch</SelectItem>
-                        <SelectItem value="linkedin">ActiveJobsDB (All)</SelectItem>
-                        <SelectItem value="linkedin-24h">ActiveJobsDB (24h)</SelectItem>
-                        <SelectItem value="linkedin-7d">ActiveJobsDB (7d)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -217,7 +208,7 @@ export default function JobFeed() {
               )}
               {sourceFilter !== "all" && (
                 <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
-                  Source: {sourceFilter === "jsearch" ? "JSearch" : sourceFilter === "linkedin" ? "ActiveJobsDB (All)" : sourceFilter === "linkedin-24h" ? "ActiveJobsDB (24h)" : "ActiveJobsDB (7d)"}
+                  Source: JSearch
                 </span>
               )}
               {searchQuery.trim() && (

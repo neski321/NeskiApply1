@@ -129,3 +129,14 @@ export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({
 
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
+
+// Session table (for express-session with connect-pg-simple)
+// This table stores user sessions for authentication
+// Table name must be "session" (singular) to match connect-pg-simple expectations
+// Note: connect-pg-simple creates this with JSON type, but Drizzle only supports jsonb
+// Both are compatible - the table is created/managed by session.ts, this is just to prevent drizzle-kit from dropping it
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: jsonb("sess").notNull(), // connect-pg-simple uses JSON in SQL, but jsonb is compatible
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+});
