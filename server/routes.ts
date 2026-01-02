@@ -5,8 +5,10 @@ import path from "path";
 import passport from "passport";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
-import { insertResumeSchema, insertJobSchema, insertATSAnalysisSchema, insertUserSchema } from "@shared/schema";
+import { insertResumeSchema, insertJobSchema, insertATSAnalysisSchema, insertUserSchema, jobs, type InsertJob, type Job } from "@shared/schema";
 import { z } from "zod";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 import { parseResume } from "./parser/resume-parser";
 import { unlink } from "fs/promises";
 import { requireAuth } from "./auth/middleware";
@@ -507,38 +509,90 @@ export async function registerRoutes(
       const messages: AIChatMessage[] = [
         {
           role: "system",
-          content: "You are an ATS (Applicant Tracking System) expert analyzer. Analyze job descriptions against resumes and provide detailed matching insights, missing keywords, and improvement suggestions."
+          content: `
+      You are an ATS + job-fit evaluation engine.
+      
+      You must analyze a job listing against multiple resumes and produce:
+      - a weighted 0–100 match score,
+      - the best resume ID,
+      - missing keywords for the best resume,
+      - actionable resume improvement suggestions.
+      
+      Scoring priorities (highest → lowest):
+      1) Skills matching (dominant)
+      2) Full-time status
+      3) Date posted (recency)
+      4) Lower experience required
+      5) Pay rate
+      6) Company & location
+      
+      Weights (total 100):
+      - skills_match: 45
+      - full_time_status: 20
+      - date_posted: 15
+      - experience_requirement: 10
+      - pay_rate: 5
+      - company_location: 5
+      
+      Rules:
+      - Do not infer missing details. If missing/unclear, treat as "unknown" and score conservatively.
+      - Skills matching is dominant:
+        - If skills_match < 20/45, cap overall score at 49.
+      - Recency cannot override a skills mismatch.
+      - Deduct points for missing, unclear, or mismatched information.
+      - Be consistent and repeatable.
+      - Output JSON only, exactly matching the user-requested schema.
+      `
         },
         {
           role: "user",
-          content: `Analyze this job description against the following resumes and provide:
-1. Which resume is the best match (provide ID and match score 0-100)
-2. Missing keywords from the best resume
-3. Specific actionable suggestions to improve the resume
-4. Match scores for all resumes
-
-Job Description:
-${jobDescription}
-
-Resumes:
-${resumes.map(r => `ID: ${r.id}, Name: ${r.name}, Skills: ${r.skills.join(", ")}, Experience: ${r.experience}, Content: ${r.rawContent.substring(0, 1000)}`).join("\n\n")}
-
-Return your response as JSON in this exact format:
-{
-  "bestResumeId": <number>,
-  "matchScore": <number 0-100>,
-  "missingKeywords": ["keyword1", "keyword2"],
-  "suggestions": [
-    {"title": "Suggestion title", "description": "Detailed suggestion", "type": "content"},
-    ...
-  ],
-  "resumeComparisons": [
-    {"resumeId": <number>, "resumeName": "Name", "score": <number>},
-    ...
-  ]
-}`
+          content: `Analyze this job listing against the following resumes and provide:
+      1. Which resume is the best match (provide ID and match score 0-100)
+      2. Missing keywords from the best resume
+      3. Specific actionable suggestions to improve the resume
+      4. Match scores for all resumes
+      
+      Scoring must follow the weighted criteria:
+      - skills_match (45), full_time_status (20), date_posted (15), experience_requirement (10), pay_rate (5), company_location (5)
+      
+      Rules:
+      - Do not infer missing details (treat as "unknown")
+      - If skills_match < 20/45, cap total score at 49
+      - Be consistent and repeatable
+      
+      Job Listing (use structured fields first if present, then description):
+      ${jobDescription}
+      
+      Resumes:
+      ${resumes
+        .map(
+          r =>
+            `ID: ${r.id}, Name: ${r.name}, Skills: ${r.skills.join(
+              ", "
+            )}, Experience: ${r.experience}, Content: ${r.rawContent.substring(0, 1000)}`
+        )
+        .join("\n\n")}
+      
+      Return your response as JSON in this exact format:
+      {
+        "bestResumeId": <number>,
+        "matchScore": <number 0-100>,
+        "missingKeywords": ["keyword1", "keyword2"],
+        "suggestions": [
+          { "title": "Suggestion title", "description": "Detailed suggestion", "type": "content" }
+        ],
+        "resumeComparisons": [
+          { "resumeId": <number>, "resumeName": "Name", "score": <number> }
+        ]
+      }
+      
+      Constraints:
+      - No extra keys
+      - No extra text
+      `
         }
       ];
+      
 
       // Call AI with fallback (Perplexity first, then Gemini)
       const aiResult = await callAIWithFallback(messages, "sonar-pro", userId);
@@ -693,6 +747,246 @@ Return your response as JSON in this exact format:
     } catch (error) {
       console.error("Error setting value:", error);
       res.status(500).json({ error: "Failed to set setting" });
+    }
+  });
+
+  // ============ JOB INGESTION API ============
+  
+  /**
+   * External job ingestion endpoint
+   * 
+   * Accepts jobs from external sources (e.g., n8n) and feeds them into the same
+   * pipeline as internally scraped jobs (storage → auto-match → ATS analysis → notify).
+   * 
+   * Authentication: Requires x-neskiapply-ingest-key header matching INGEST_KEY env var
+   * 
+   * Payload: Single job object or array of job objects in n8n format:
+   * {
+   *   "id": "83e792a7592d5d3f",
+   *   "positionName": "Associate Software Engineer",
+   *   "company": "Capgemini",
+   *   "location": "Mississauga, ON",
+   *   "salary": "$60,000–$80,000 a year",
+   *   "jobType": ["Permanent"],
+   *   "postedAt": "3 days ago",
+   *   "postingDateParsed": "2025-12-30T04:18:11.402Z",
+   *   "description": "...",
+   *   "url": "...",
+   *   "externalApplyLink": "...",
+   *   "isExpired": false
+   * }
+   * 
+   * Query params:
+   *   - userId: Required. User ID to associate jobs with
+   * 
+   * Response:
+   * {
+   *   "ok": true,
+   *   "processed": <number>,
+   *   "inserted": <number>,
+   *   "updated": <number>,
+   *   "skipped": <number>
+   * }
+   */
+  app.post("/api/jobs/ingest", async (req, res) => {
+    try {
+      // Validate ingest key
+      const ingestKey = req.headers["x-neskiapply-ingest-key"];
+      const expectedKey = process.env.INGEST_KEY;
+      
+      if (!expectedKey) {
+        console.error("[Ingest] INGEST_KEY environment variable not configured");
+        return res.status(500).json({ 
+          ok: false, 
+          error: "Ingest endpoint not configured" 
+        });
+      }
+      
+      if (!ingestKey || ingestKey !== expectedKey) {
+        console.warn("[Ingest] Invalid or missing ingest key");
+        return res.status(401).json({ 
+          ok: false, 
+          error: "Invalid or missing ingest key" 
+        });
+      }
+      
+      // Get userId from query params
+      const userId = req.query.userId as string;
+      if (!userId) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: "userId query parameter is required" 
+        });
+      }
+      
+      // Verify user exists
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ 
+          ok: false, 
+          error: "User not found" 
+        });
+      }
+      
+      // Parse payload (single job or array)
+      const payload = req.body;
+      const jobs = Array.isArray(payload) ? payload : [payload];
+      
+      if (jobs.length === 0) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: "No jobs provided in payload" 
+        });
+      }
+      
+      let processed = 0;
+      let inserted = 0;
+      let updated = 0;
+      let skipped = 0;
+      
+      // Helper function to infer source from URL
+      const inferSource = (url: string | undefined | null): string => {
+        if (!url) return "n8n";
+        try {
+          const domain = new URL(url).hostname.toLowerCase();
+          if (domain.includes("indeed")) return "Indeed";
+          if (domain.includes("linkedin")) return "LinkedIn";
+          if (domain.includes("glassdoor")) return "Glassdoor";
+          if (domain.includes("monster")) return "Monster";
+          if (domain.includes("ziprecruiter")) return "ZipRecruiter";
+          return "n8n";
+        } catch {
+          return "n8n";
+        }
+      };
+      
+      // Helper function to format posted date
+      const formatPostedDate = (postingDateParsed: string | undefined, postedAt: string | undefined): string | undefined => {
+        if (postingDateParsed) {
+          try {
+            const date = new Date(postingDateParsed);
+            if (!isNaN(date.getTime())) {
+              return date.toLocaleDateString();
+            }
+          } catch {
+            // Fall through to postedAt
+          }
+        }
+        if (postedAt) {
+          return postedAt.trim();
+        }
+        return undefined;
+      };
+      
+      // Helper function to clamp text field length
+      const clampText = (text: string | undefined | null, maxLength: number = 50000): string => {
+        if (!text) return "";
+        const trimmed = text.trim();
+        return trimmed.length > maxLength ? trimmed.substring(0, maxLength) : trimmed;
+      };
+      
+      // Process each job
+      for (const jobData of jobs) {
+        try {
+          // Skip expired jobs
+          if (jobData.isExpired === true) {
+            skipped++;
+            continue;
+          }
+          
+          // Map n8n format to internal format
+          const externalId = jobData.id ? `n8n_${jobData.id}` : undefined;
+          const title = (jobData.positionName || "").trim();
+          const company = (jobData.company || "").trim();
+          const location = (jobData.location || "unknown").trim();
+          const salary = jobData.salary ? (jobData.salary.trim() || null) : null;
+          const description = clampText(jobData.description, 50000);
+          const postedDate = formatPostedDate(jobData.postingDateParsed, jobData.postedAt);
+          const url = (jobData.url || jobData.externalApplyLink || null)?.trim() || null;
+          const source = inferSource(url);
+          
+          // Validate required fields
+          if (!title || !company || !description) {
+            console.warn(`[Ingest] Skipping job with missing required fields: ${JSON.stringify({ title, company, hasDescription: !!description })}`);
+            skipped++;
+            continue;
+          }
+          
+          // Build InsertJob object (userId is added by storage layer, not included here)
+          const insertJob = {
+            externalId,
+            title,
+            company,
+            location,
+            salary,
+            description,
+            requirements: undefined, // n8n doesn't provide this separately
+            postedDate,
+            source,
+            url,
+            status: "pending",
+            // Don't set matchScore, matchedResumeId, matchReasoning, or tags
+            // These will be set by the matching pipeline
+          } as InsertJob;
+          
+          // Check if job already exists to determine if it's insert or update
+          let wasExisting = false;
+          if (externalId) {
+            // @ts-expect-error - Drizzle ORM type inference issue, but code is correct at runtime
+            const existing = await db
+              .select()
+              .from(jobs)
+              .where(and(eq(jobs.externalId, externalId), eq(jobs.userId, userId)));
+            wasExisting = existing.length > 0;
+          }
+          
+          // Use existing upsert mechanism (same as JSearch scraper)
+          const savedJob = await storage.upsertJobByExternalId(insertJob, userId);
+          
+          if (wasExisting) {
+            updated++;
+          } else {
+            inserted++;
+            
+            // Trigger auto-matching (same as JSearch scraper does)
+            // This ensures ATS analysis, resume matching, notifications, and tags
+            // all behave identically to internally scraped jobs
+            import("./matcher/job-matcher").then(({ matchAndUpdateJob }) => {
+              matchAndUpdateJob(savedJob.id, userId).catch(err => 
+                console.error(`[Ingest] Error auto-matching job ${savedJob.id}:`, err)
+              );
+            });
+          }
+          
+          processed++;
+        } catch (error) {
+          console.error(`[Ingest] Error processing job:`, error);
+          skipped++;
+        }
+      }
+      
+      // Log activity
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        `External job ingestion: ${inserted} inserted, ${updated} updated, ${skipped} skipped`,
+        { inserted, updated, skipped, processed, source: "n8n" },
+        userId
+      );
+      
+      res.json({
+        ok: true,
+        processed,
+        inserted,
+        updated,
+        skipped,
+      });
+    } catch (error) {
+      console.error("[Ingest] Error in ingestion endpoint:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Failed to ingest jobs",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
