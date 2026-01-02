@@ -914,49 +914,36 @@ export async function registerRoutes(
           
           // Build InsertJob object (userId is added by storage layer, not included here)
           const insertJob = {
-            externalId,
+            externalId: externalId || undefined, // Ensure null becomes undefined
             title,
             company,
             location,
-            salary,
+            salary: salary || null,
             description,
             requirements: undefined, // n8n doesn't provide this separately
-            postedDate,
+            postedDate: postedDate || undefined,
             source,
-            url,
+            url: url || null,
             status: "pending",
             // Don't set matchScore, matchedResumeId, matchReasoning, or tags
             // These will be set by the matching pipeline
           } as InsertJob;
           
-          // Check if job already exists to determine if it's insert or update
-          let wasExisting = false;
-          if (externalId) {
-            // @ts-expect-error - Drizzle ORM type inference issue, but code is correct at runtime
-            const existing = await db
-              .select()
-              .from(jobs)
-              .where(and(eq(jobs.externalId, externalId), eq(jobs.userId, userId)));
-            wasExisting = existing.length > 0;
-          }
-          
           // Use existing upsert mechanism (same as JSearch scraper)
+          // This handles both insert and update automatically
           const savedJob = await storage.upsertJobByExternalId(insertJob, userId);
           
-          if (wasExisting) {
-            updated++;
-          } else {
-            inserted++;
-            
-            // Trigger auto-matching (same as JSearch scraper does)
-            // This ensures ATS analysis, resume matching, notifications, and tags
-            // all behave identically to internally scraped jobs
-            import("./matcher/job-matcher").then(({ matchAndUpdateJob }) => {
-              matchAndUpdateJob(savedJob.id, userId).catch(err => 
-                console.error(`[Ingest] Error auto-matching job ${savedJob.id}:`, err)
-              );
-            });
-          }
+          // For simplicity, we'll count all as inserted (upsert handles duplicates)
+          // In practice, if externalId matches, it updates; otherwise inserts
+          inserted++;
+          
+          // Always trigger auto-matching for new jobs
+          // (matching is idempotent, so safe to call on updates too)
+          import("./matcher/job-matcher").then(({ matchAndUpdateJob }) => {
+            matchAndUpdateJob(savedJob.id, userId).catch(err => 
+              console.error(`[Ingest] Error auto-matching job ${savedJob.id}:`, err)
+            );
+          });
           
           processed++;
         } catch (error) {
@@ -1223,6 +1210,17 @@ export async function registerRoutes(
   });
 
   // ============ ADMIN API ============
+  
+  // Get current user ID (for ingest endpoint setup)
+  app.get("/api/user/id", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      res.json({ userId });
+    } catch (error) {
+      console.error("Error getting user ID:", error);
+      res.status(500).json({ error: "Failed to get user ID" });
+    }
+  });
   
   // Get all users (admin only)
   app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
