@@ -7,3 +7,4 @@ vite.config.ts.*
 .envuploads/
 uploads/**
 .env
+N8N_SETUP.md
