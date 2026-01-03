@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, integer, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -56,6 +56,7 @@ export const jobs = pgTable("jobs", {
   source: text("source").notNull(),
   url: text("url"),
   status: text("status").notNull().default("pending"),
+  isApplied: boolean("is_applied").default(false),
   matchScore: integer("match_score"),
   matchedResumeId: integer("matched_resume_id"),
   matchReasoning: text("match_reasoning").array(),

@@ -124,10 +124,11 @@ export async function uploadResumeFile(file: File, name: string): Promise<Resume
 
 // ============ JOBS API ============
 
-export async function getJobs(filters?: { status?: string; minMatchScore?: number }): Promise<Job[]> {
+export async function getJobs(filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.append("status", filters.status);
   if (filters?.minMatchScore) params.append("minMatchScore", filters.minMatchScore.toString());
+  if (filters?.isApplied !== undefined) params.append("isApplied", filters.isApplied.toString());
   
   const response = await fetch(`/api/jobs?${params}`);
   if (!response.ok) throw new Error("Failed to fetch jobs");
@@ -365,6 +366,49 @@ export async function rescheduleCronJob(): Promise<{ success: boolean; message?:
 }
 
 // ============ DISCORD API ============
+
+export async function testReminder(): Promise<{ success: boolean; message?: string; error?: string }> {
+  const response = await fetch("/api/reminder/test", {
+    method: "POST",
+    credentials: "include",
+  });
+  
+  // Check content type before parsing
+  const contentType = response.headers.get("content-type");
+  const isJson = contentType && contentType.includes("application/json");
+  
+  if (!response.ok) {
+    let errorMessage = "Failed to test reminder";
+    try {
+      if (isJson) {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } else {
+        // If not JSON, try to get text
+        const text = await response.text();
+        // If it's HTML, provide a generic error
+        if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+          errorMessage = `Server returned an error page (${response.status}). Please check your settings and try again.`;
+        } else {
+          errorMessage = text || errorMessage;
+        }
+      }
+    } catch (parseError) {
+      // If we can't parse the error, use status text
+      errorMessage = `${response.status} ${response.statusText}`;
+    }
+    throw new Error(errorMessage);
+  }
+  
+  // Parse successful response
+  if (isJson) {
+    return await response.json();
+  } else {
+    // If response is not JSON, try to parse as text
+    const text = await response.text();
+    throw new Error(`Unexpected response format: ${text.substring(0, 100)}`);
+  }
+}
 
 export async function testDiscordWebhook(): Promise<{ success: boolean; message?: string; error?: string }> {
   const response = await fetch("/api/discord/test", {

@@ -44,8 +44,7 @@ export async function sendDiscordNotification(payload: DiscordWebhookPayload, us
       throw new Error("Invalid Discord webhook URL format. Please check your webhook URL.");
     }
 
-    console.log(`[Discord] Sending webhook to: ${webhookUrl.substring(0, 50)}...`);
-    console.log(`[Discord] Payload:`, JSON.stringify(payload, null, 2));
+    // Removed payload logging to reduce console clutter
 
     // Send the webhook
     const response = await fetch(webhookUrl, {
@@ -197,6 +196,51 @@ export async function sendTestNotification(userId: string): Promise<boolean> {
           },
         ],
         timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  return await sendDiscordNotification(payload, userId);
+}
+
+/**
+ * Send a reminder notification to apply to jobs
+ * Shows count of unapplied high-priority jobs
+ */
+export async function sendApplyReminder(userId: string, unappliedJobsCount: number, highPriorityJobsCount: number): Promise<boolean> {
+  // Get reminder settings
+  const reminderThresholdSetting = await storage.getSetting("reminder_match_threshold", userId);
+  const reminderThreshold = reminderThresholdSetting ? parseInt(reminderThresholdSetting.value, 10) : 70;
+
+  // Dashboard URL
+  const dashboardUrl = "https://neskiapply.up.railway.app/";
+
+  const payload: DiscordWebhookPayload = {
+    content: `⏰ Daily Reminder: Don't forget to apply to jobs!`,
+    embeds: [
+      {
+        title: "📋 Job Application Reminder",
+        description: `You have **${unappliedJobsCount}** unapplied job${unappliedJobsCount !== 1 ? "s" : ""} waiting for you!\n\n${highPriorityJobsCount > 0 ? `**${highPriorityJobsCount}** of them are high-priority matches (${reminderThreshold}%+).` : ""}\n\n[🔗 View Dashboard](${dashboardUrl})`,
+        color: 0xffa500, // Orange color for reminders
+        fields: [
+          {
+            name: "Unapplied Jobs",
+            value: `${unappliedJobsCount}`,
+            inline: true,
+          },
+          {
+            name: "High Priority",
+            value: `${highPriorityJobsCount}`,
+            inline: true,
+          },
+          {
+            name: "🚀 Quick Action",
+            value: dashboardUrl ? `[Open Dashboard →](${dashboardUrl})` : "Log in to your dashboard to view and apply!",
+            inline: false,
+          },
+        ],
+        timestamp: new Date().toISOString(),
+        ...(dashboardUrl ? { url: dashboardUrl } : {}), // Makes the title clickable
       },
     ],
   };

@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Save, Check, Play, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
+import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -45,6 +45,9 @@ export default function Settings() {
     cronEnabled: false,
     cronScheduleTime: "09:00",
     cronTimezone: "America/Toronto",
+    reminderEnabled: false,
+    reminderTime: "16:00",
+    reminderMatchThreshold: "70",
     headlessMode: true,
     aiProviderPreference: "auto",
     perplexityApiKey: "",
@@ -139,6 +142,9 @@ export default function Settings() {
         cronEnabled: settingsMap.cron_enabled === "true",
         cronScheduleTime: settingsMap.cron_schedule_time || "09:00",
         cronTimezone: settingsMap.cron_timezone || "America/Toronto",
+        reminderEnabled: settingsMap.reminder_enabled === "true",
+        reminderTime: settingsMap.reminder_time || "16:00",
+        reminderMatchThreshold: settingsMap.reminder_match_threshold || "70",
         headlessMode: settingsMap.headless_mode === "true",
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
         perplexityApiKey: settingsMap.perplexity_api_key || "",
@@ -217,6 +223,46 @@ export default function Settings() {
     },
   });
 
+  const reminderTestMutation = useMutation({
+    mutationFn: testReminder,
+    onSuccess: (data) => {
+      toast({
+        title: "Reminder Test",
+        description: data.message || "Test reminder sent successfully!",
+        variant: "default",
+        className: "border-emerald-500/50 text-emerald-500",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Reminder Test Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Auto-save mutation for reminder settings
+  const saveReminderSettingMutation = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      await setSetting(key, value);
+      // Reschedule reminder cron when reminder settings change
+      if (key === "reminder_enabled" || key === "reminder_time" || key === "reminder_match_threshold") {
+        await rescheduleCronJob();
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to save setting",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSave = async () => {
     setIsSaving(true);
     
@@ -236,6 +282,9 @@ export default function Settings() {
       cron_enabled: formData.cronEnabled.toString(),
       cron_schedule_time: formData.cronScheduleTime,
       cron_timezone: formData.cronTimezone,
+      reminder_enabled: formData.reminderEnabled.toString(),
+      reminder_time: formData.reminderTime,
+      reminder_match_threshold: formData.reminderMatchThreshold,
       headless_mode: formData.headlessMode.toString(),
       ai_provider_preference: formData.aiProviderPreference,
       perplexity_api_key: formData.perplexityApiKey,
@@ -251,9 +300,9 @@ export default function Settings() {
 
     await saveMutation.mutateAsync(settingsToSave);
     
-    // Reschedule cron job if schedule settings changed
+    // Reschedule cron jobs if schedule settings changed
     try {
-      await rescheduleCronJob();
+      await rescheduleCronJob(); // This reschedules both scraping and reminder cron jobs
     } catch (error) {
       console.error("Failed to reschedule cron job:", error);
       // Don't fail the save if cron reschedule fails
@@ -748,6 +797,129 @@ export default function Settings() {
                       />
                       <span className="text-sm text-muted-foreground">jobs</span>
                     </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Daily Reminder Notifications</CardTitle>
+                <CardDescription>
+                  Get a daily Discord reminder to apply to unapplied jobs. Configure the time and match score threshold.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-border/50">
+                  <div className="space-y-0.5 flex-1">
+                    <Label className="text-base">Enable Daily Reminders</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Receive a daily Discord notification reminding you to apply to unapplied jobs. Requires Discord notifications to be enabled.
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.reminderEnabled}
+                    onCheckedChange={(checked) => {
+                      setFormData({ ...formData, reminderEnabled: checked });
+                      // Auto-save when toggled
+                      saveReminderSettingMutation.mutate({ 
+                        key: "reminder_enabled", 
+                        value: checked.toString() 
+                      });
+                    }}
+                    disabled={!formData.discordNotifications || saveReminderSettingMutation.isPending}
+                  />
+                </div>
+
+                {!formData.discordNotifications && (
+                  <div className="p-4 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                    <p className="text-sm text-amber-500">
+                      <strong>Discord notifications must be enabled</strong> for reminders to work. Enable Discord notifications in the section above.
+                    </p>
+                  </div>
+                )}
+
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!formData.reminderEnabled || !formData.discordNotifications ? "opacity-50 pointer-events-none" : ""}`}>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Reminder Time
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">24-hour format</span>
+                    </Label>
+                    <Input
+                      type="time"
+                      value={formData.reminderTime}
+                      onChange={(e) => {
+                        setFormData({ ...formData, reminderTime: e.target.value });
+                        // Auto-save when changed
+                        saveReminderSettingMutation.mutate({ 
+                          key: "reminder_time", 
+                          value: e.target.value 
+                        });
+                      }}
+                      className="font-mono"
+                      disabled={!formData.reminderEnabled || !formData.discordNotifications || saveReminderSettingMutation.isPending}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Time when daily reminder is sent (24-hour format, e.g., 16:00 for 4:00 PM). Default: 4:00 PM.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Minimum Match Score
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">For reminders</span>
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        className="w-20 h-9"
+                        min="0"
+                        max="100"
+                        value={formData.reminderMatchThreshold}
+                        onChange={(e) => {
+                          setFormData({ ...formData, reminderMatchThreshold: e.target.value });
+                          // Auto-save when changed (with debounce would be better, but this works)
+                          const value = e.target.value;
+                          setTimeout(() => {
+                            saveReminderSettingMutation.mutate({ 
+                              key: "reminder_match_threshold", 
+                              value: value 
+                            });
+                          }, 500); // Small delay to avoid too many saves while typing
+                        }}
+                        disabled={!formData.reminderEnabled || !formData.discordNotifications || saveReminderSettingMutation.isPending}
+                      />
+                      <span className="font-mono font-bold text-primary">%</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Only count jobs with match scores at or above this percentage in the reminder. Default: 70%.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>How it works:</strong> At the configured time, you'll receive a Discord notification showing how many unapplied jobs you have. 
+                    The reminder will only count jobs that haven't been marked as applied and haven't been rejected.
+                  </p>
+                </div>
+
+                <div className="pt-4 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                      <Label className="text-base">Test Reminder</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Send a test reminder notification to your Discord channel to verify it's working correctly.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => reminderTestMutation.mutate()}
+                      disabled={reminderTestMutation.isPending || !formData.reminderEnabled || !formData.discordNotifications}
+                    >
+                      {reminderTestMutation.isPending ? "Testing..." : "Test Reminder"}
+                    </Button>
                   </div>
                 </div>
               </CardContent>

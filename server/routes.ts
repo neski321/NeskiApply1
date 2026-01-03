@@ -364,11 +364,14 @@ export async function registerRoutes(
   app.get("/api/jobs", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const { status, minMatchScore } = req.query;
+      const { status, minMatchScore, isApplied } = req.query;
       
       const filters: any = {};
       if (status) filters.status = status as string;
       if (minMatchScore) filters.minMatchScore = parseInt(minMatchScore as string);
+      if (isApplied !== undefined) {
+        filters.isApplied = isApplied === "true";
+      }
       
       const jobs = await storage.getJobs(userId, filters);
       res.json(jobs);
@@ -429,10 +432,22 @@ export async function registerRoutes(
       // Log activity for status changes
       const { activityLogger } = await import("./logger");
       if (validatedData.status) {
-        if (validatedData.status === "applied") {
-          await activityLogger.success(`Applied to "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        if (validatedData.status === "viewed") {
+          await activityLogger.info(`Viewed link for "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        } else if (validatedData.status === "applied") {
+          // Legacy support - treat as viewed
+          await activityLogger.info(`Viewed link for "${job.title}" at ${job.company}`, { jobId: id }, userId);
         } else {
           await activityLogger.info(`Job "${job.title}" status updated to ${validatedData.status}`, { jobId: id, status: validatedData.status }, userId);
+        }
+      }
+      
+      // Log activity for applied status changes
+      if (validatedData.isApplied !== undefined) {
+        if (validatedData.isApplied === true) {
+          await activityLogger.success(`Marked as applied: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        } else {
+          await activityLogger.info(`Unmarked as applied: "${job.title}" at ${job.company}`, { jobId: id }, userId);
         }
       }
       
@@ -845,15 +860,16 @@ export async function registerRoutes(
       let skipped = 0;
       
       // Helper function to infer source from URL
+      // Returns format: "n8n (Indeed)" or "n8n (LinkedIn)" etc. to indicate it came via n8n
       const inferSource = (url: string | undefined | null): string => {
         if (!url) return "n8n";
         try {
           const domain = new URL(url).hostname.toLowerCase();
-          if (domain.includes("indeed")) return "Indeed";
-          if (domain.includes("linkedin")) return "LinkedIn";
-          if (domain.includes("glassdoor")) return "Glassdoor";
-          if (domain.includes("monster")) return "Monster";
-          if (domain.includes("ziprecruiter")) return "ZipRecruiter";
+          if (domain.includes("indeed")) return "n8n (Indeed)";
+          if (domain.includes("linkedin")) return "n8n (LinkedIn)";
+          if (domain.includes("glassdoor")) return "n8n (Glassdoor)";
+          if (domain.includes("monster")) return "n8n (Monster)";
+          if (domain.includes("ziprecruiter")) return "n8n (ZipRecruiter)";
           return "n8n";
         } catch {
           return "n8n";
@@ -954,11 +970,19 @@ export async function registerRoutes(
       
       // Log activity
       const { activityLogger } = await import("./logger");
-      await activityLogger.info(
-        `External job ingestion: ${inserted} inserted, ${updated} updated, ${skipped} skipped`,
-        { inserted, updated, skipped, processed, source: "n8n" },
-        userId
-      );
+      if (inserted > 0 || updated > 0) {
+        await activityLogger.success(
+          `n8n job ingestion: ${inserted} new jobs added, ${updated} updated`,
+          { inserted, updated, skipped, processed, source: "n8n" },
+          userId
+        );
+      } else if (skipped > 0) {
+        await activityLogger.info(
+          `n8n job ingestion: ${skipped} jobs skipped (duplicates or expired)`,
+          { inserted, updated, skipped, processed, source: "n8n" },
+          userId
+        );
+      }
       
       res.json({
         ok: true,
@@ -1291,7 +1315,8 @@ export async function registerRoutes(
       
       // Calculate stats
       const totalJobs = jobs.length;
-      const appliedJobs = jobs.filter(j => j.status === "applied").length;
+      const linksViewed = jobs.filter(j => j.status === "viewed" || j.status === "applied").length; // Count both "viewed" and legacy "applied" as viewed
+      const appliedJobs = jobs.filter(j => j.isApplied === true).length; // Count jobs actually marked as applied
       const pendingJobs = jobs.filter(j => j.status === "pending").length;
       const rejectedJobs = jobs.filter(j => j.status === "rejected").length;
       const interviewJobs = jobs.filter(j => j.status === "interview").length;
@@ -1309,6 +1334,11 @@ export async function registerRoutes(
       
       // Interview rate (if we have applied jobs)
       const interviewRate = appliedJobs > 0 
+        ? ((interviewJobs / appliedJobs) * 100).toFixed(1)
+        : "0.0";
+      
+      // Response rate (interviews / applied)
+      const responseRate = appliedJobs > 0
         ? ((interviewJobs / appliedJobs) * 100).toFixed(1)
         : "0.0";
       
@@ -1344,11 +1374,13 @@ export async function registerRoutes(
         totalJobs,
         todayJobs,
         yesterdayJobs,
-        appliedJobs,
+        linksViewed, // Links that have been viewed
+        appliedJobs, // Jobs actually marked as applied (isApplied = true)
         pendingJobs,
         rejectedJobs,
         interviewJobs,
         interviewRate: `${interviewRate}%`,
+        responseRate: `${responseRate}%`,
         highMatchJobs,
         totalResumes: resumes.length,
         topMissingSkills,
@@ -1362,11 +1394,12 @@ export async function registerRoutes(
   // Reschedule cron job (called when cron settings change)
   app.post("/api/cron/reschedule", async (req, res) => {
     try {
-      const { rescheduleDailyScraping } = await import("./cron/index");
+      const { rescheduleDailyScraping, rescheduleReminderCron } = await import("./cron/index");
       await rescheduleDailyScraping();
+      await rescheduleReminderCron();
       res.json({ 
         success: true, 
-        message: "Cron job rescheduled successfully" 
+        message: "Cron jobs rescheduled successfully" 
       });
     } catch (error) {
       console.error("Error rescheduling cron job:", error);
@@ -1375,6 +1408,91 @@ export async function registerRoutes(
         error: "Failed to reschedule cron job",
         message: error instanceof Error ? error.message : "Unknown error"
       });
+    }
+  });
+
+  // Test daily reminder
+  app.post("/api/reminder/test", requireAuth, async (req, res) => {
+    // Ensure we always send a JSON response
+    res.setHeader("Content-Type", "application/json");
+    
+    try {
+      const userId = getUserIdFromRequest(req);
+      console.log("[Reminder Test] Route hit - Starting reminder test...");
+      
+      // Check if reminders are enabled
+      const reminderEnabled = await storage.getSetting("reminder_enabled", userId);
+      if (!reminderEnabled || reminderEnabled.value !== "true") {
+        res.status(400).json({ 
+          success: false, 
+          error: "Reminders are not enabled. Enable reminders in Settings first." 
+        });
+        return;
+      }
+
+      // Check if Discord notifications are enabled
+      const discordEnabled = await storage.getSetting("discord_notifications", userId);
+      if (!discordEnabled || discordEnabled.value !== "true") {
+        res.status(400).json({ 
+          success: false, 
+          error: "Discord notifications are not enabled. Enable Discord notifications in Settings first." 
+        });
+        return;
+      }
+
+      // Get all unapplied jobs
+      const allJobs = await storage.getJobs(userId, { isApplied: false });
+      
+      // Filter out rejected jobs
+      const unappliedJobs = allJobs.filter(j => j.status !== "rejected");
+      
+      // Get reminder threshold (default: 70%)
+      const reminderThresholdSetting = await storage.getSetting("reminder_match_threshold", userId);
+      const reminderThreshold = reminderThresholdSetting ? parseInt(reminderThresholdSetting.value, 10) : 70;
+      
+      // Count high priority unapplied jobs
+      const highPriorityJobs = unappliedJobs.filter(j => j.matchScore && j.matchScore >= reminderThreshold);
+      
+      // Send test reminder
+      const { sendApplyReminder } = await import("./discord");
+      
+      try {
+        const success = await sendApplyReminder(userId, unappliedJobs.length, highPriorityJobs.length);
+        
+        if (success) {
+          console.log("[Reminder Test] Success - reminder sent");
+          res.json({ 
+            success: true, 
+            message: `Reminder test sent successfully! Found ${unappliedJobs.length} unapplied jobs (${highPriorityJobs.length} high priority).` 
+          });
+          return;
+        } else {
+          console.log("[Reminder Test] Failed - sendApplyReminder returned false");
+          res.status(400).json({ 
+            success: false, 
+            error: "Failed to send reminder. Check your Discord webhook URL and notification settings." 
+          });
+          return;
+        }
+      } catch (reminderError) {
+        console.error("[Reminder Test] Error in sendApplyReminder:", reminderError);
+        const errorMessage = reminderError instanceof Error ? reminderError.message : "Unknown error";
+        res.status(400).json({ 
+          success: false,
+          error: errorMessage,
+          message: errorMessage
+        });
+        return;
+      }
+    } catch (error) {
+      console.error("[Reminder Test] Unexpected error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({ 
+        success: false,
+        error: errorMessage,
+        message: `Failed to test reminder: ${errorMessage}`
+      });
+      return;
     }
   });
 

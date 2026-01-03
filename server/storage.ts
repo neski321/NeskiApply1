@@ -19,7 +19,7 @@ import {
   activityLogs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -38,7 +38,7 @@ export interface IStorage {
 
   // Jobs
   createJob(job: InsertJob, userId: string): Promise<Job>;
-  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number }): Promise<Job[]>;
+  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]>;
   getJob(id: number, userId: string): Promise<Job | undefined>;
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string): Promise<boolean>;
@@ -125,7 +125,7 @@ export class DatabaseStorage implements IStorage {
     return newJob;
   }
 
-  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number }): Promise<Job[]> {
+  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]> {
     const conditions = [eq(jobs.userId, userId)];
     
     if (filters?.status) {
@@ -133,6 +133,15 @@ export class DatabaseStorage implements IStorage {
     }
     if (filters?.minMatchScore) {
       conditions.push(sql`${jobs.matchScore} >= ${filters.minMatchScore}`);
+    }
+    if (filters?.isApplied !== undefined) {
+      if (filters.isApplied === true) {
+        // For applied: isApplied must be true
+        conditions.push(eq(jobs.isApplied, true));
+      } else {
+        // For unapplied: isApplied is false OR null
+        conditions.push(or(eq(jobs.isApplied, false), isNull(jobs.isApplied)));
+      }
     }
 
     return await db.select().from(jobs).where(and(...conditions)).orderBy(desc(jobs.createdAt));
