@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MatchRing } from "@/components/ui/match-ring";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +15,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Job } from "@shared/schema";
-import { Building2, Calendar, MapPin, ChevronRight, ExternalLink, Trash2, Clock } from "lucide-react";
+import { Building2, Calendar, MapPin, ChevronRight, ExternalLink, Trash2, Clock, CheckCircle2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateJob, deleteJob } from "@/lib/api";
@@ -62,11 +63,29 @@ export function JobCard({ job }: { job: Job }) {
     },
   });
 
-  const handleApply = () => {
-    updateStatusMutation.mutate("applied");
+  const handleViewLink = () => {
+    // Change status to "viewed" when link is opened (not "applied")
+    updateStatusMutation.mutate("viewed");
     if (job.url) {
       window.open(job.url, "_blank");
     }
+  };
+
+  const handleToggleApplied = (checked: boolean) => {
+    updateJob(job.id, { isApplied: checked }).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: checked ? "Marked as applied" : "Unmarked as applied",
+        description: `"${job.title}" ${checked ? "has been marked as applied" : "is no longer marked as applied"}`,
+      });
+    }).catch((error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    });
   };
 
   const handleViewAnalysis = () => {
@@ -111,9 +130,17 @@ export function JobCard({ job }: { job: Job }) {
                 )}
               </div>
             </div>
-            <Badge variant={job.status === "pending" ? "outline" : "secondary"} className="capitalize font-mono text-xs flex-shrink-0 self-start sm:self-auto">
-              {job.status}
-            </Badge>
+            <div className="flex items-center gap-2 flex-shrink-0 self-start sm:self-auto">
+              <Badge variant={job.status === "pending" ? "outline" : job.status === "viewed" ? "secondary" : "secondary"} className="capitalize font-mono text-xs">
+                {job.status === "applied" ? "viewed" : job.status}
+              </Badge>
+              {job.isApplied && (
+                <Badge variant="default" className="gap-1 text-xs">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Applied
+                </Badge>
+              )}
+            </div>
           </div>
 
           {/* Tags */}
@@ -147,14 +174,28 @@ export function JobCard({ job }: { job: Job }) {
         >
           View Analysis
         </Button>
+        <div className="flex items-center gap-2 h-9 md:h-8 px-3 rounded-md border border-border bg-background">
+          <Checkbox
+            id={`applied-${job.id}`}
+            checked={job.isApplied || false}
+            onCheckedChange={handleToggleApplied}
+            disabled={updateStatusMutation.isPending || deleteJobMutation.isPending}
+          />
+          <label
+            htmlFor={`applied-${job.id}`}
+            className="text-sm font-medium cursor-pointer select-none"
+          >
+            Applied
+          </label>
+        </div>
         <Button 
           size="sm" 
           className="h-9 md:h-8 gap-1 w-full sm:w-auto"
-          onClick={handleApply}
-          disabled={updateStatusMutation.isPending || deleteJobMutation.isPending || job.status === "applied"}
+          onClick={handleViewLink}
+          disabled={updateStatusMutation.isPending || deleteJobMutation.isPending}
         >
-          {job.status === "applied" ? "Applied" : "Apply Now"} 
-          {job.status !== "applied" && <ExternalLink className="h-3 w-3" />}
+          {job.status === "viewed" ? "View Again" : "View Link"} 
+          <ExternalLink className="h-3 w-3" />
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>

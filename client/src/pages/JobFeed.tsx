@@ -25,18 +25,24 @@ export default function JobFeed() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [minMatchScore, setMinMatchScore] = useState<number | undefined>(undefined);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
   const [showFilters, setShowFilters] = useState(false);
 
   // Fetch all jobs
   const { data: allJobs = [], isLoading } = useQuery({
-    queryKey: ["jobs", statusFilter, minMatchScore],
+    queryKey: ["jobs", statusFilter, minMatchScore, appliedFilter],
     queryFn: () => {
-      const filters: { status?: string; minMatchScore?: number } = {};
+      const filters: { status?: string; minMatchScore?: number; isApplied?: boolean } = {};
       if (statusFilter !== "all") {
         filters.status = statusFilter;
       }
       if (minMatchScore !== undefined) {
         filters.minMatchScore = minMatchScore;
+      }
+      if (appliedFilter === "applied") {
+        filters.isApplied = true;
+      } else if (appliedFilter === "unapplied") {
+        filters.isApplied = false;
       }
       return getJobs(filters);
     },
@@ -51,6 +57,10 @@ export default function JobFeed() {
       filtered = filtered.filter((job) => {
         if (sourceFilter === "jsearch") {
           return job.source === "JSearch";
+        }
+        if (sourceFilter === "n8n") {
+          // Match "n8n" or "n8n (Indeed)", "n8n (LinkedIn)", etc.
+          return job.source?.toLowerCase().includes("n8n") || job.source === "n8n";
         }
         return true;
       });
@@ -96,10 +106,11 @@ export default function JobFeed() {
     setStatusFilter("all");
     setMinMatchScore(undefined);
     setSourceFilter("all");
+    setAppliedFilter("all");
     setSearchQuery("");
   };
 
-  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || searchQuery.trim() !== "";
+  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "";
 
   return (
     <Layout>
@@ -123,7 +134,7 @@ export default function JobFeed() {
                   Filters
                   {hasActiveFilters && (
                     <span className="ml-1 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
-                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all"].filter(Boolean).length}
+                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all", appliedFilter !== "all"].filter(Boolean).length}
                     </span>
                   )}
                 </Button>
@@ -175,6 +186,21 @@ export default function JobFeed() {
                       <SelectContent>
                         <SelectItem value="all">All Sources</SelectItem>
                         <SelectItem value="jsearch">JSearch</SelectItem>
+                        <SelectItem value="n8n">n8n</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-2">Applied Status</h4>
+                    <Select value={appliedFilter} onValueChange={setAppliedFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All jobs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Jobs</SelectItem>
+                        <SelectItem value="applied">Applied</SelectItem>
+                        <SelectItem value="unapplied">Not Applied</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -208,7 +234,12 @@ export default function JobFeed() {
               )}
               {sourceFilter !== "all" && (
                 <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
-                  Source: JSearch
+                  Source: {sourceFilter === "jsearch" ? "JSearch" : sourceFilter === "n8n" ? "n8n" : sourceFilter}
+                </span>
+              )}
+              {appliedFilter !== "all" && (
+                <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
+                  {appliedFilter === "applied" ? "Applied" : "Not Applied"}
                 </span>
               )}
               {searchQuery.trim() && (

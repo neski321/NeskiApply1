@@ -4,6 +4,7 @@ import { scrapeJobs } from "../scraper/index";
 import { activityLogger } from "../logger";
 
 let cronJob: ScheduledTask | null = null;
+let reminderCronJob: ScheduledTask | null = null;
 
 /**
  * Execute daily job scraping for a specific user
@@ -177,6 +178,139 @@ export async function setupDailyScraping(): Promise<void> {
   });
 
   console.log("[Cron] Daily scraping cron job scheduled (checks every 15 minutes)");
+}
+
+/**
+ * Execute reminder check for a specific user
+ */
+export async function executeReminderCheck(userId: string): Promise<{
+  success: boolean;
+  message: string;
+  sent?: boolean;
+}> {
+  try {
+    // Check if reminders are enabled
+    const reminderEnabled = await storage.getSetting("reminder_enabled", userId);
+    if (!reminderEnabled || reminderEnabled.value !== "true") {
+      return {
+        success: true,
+        message: "Reminders are disabled",
+        sent: false,
+      };
+    }
+
+    // Get all unapplied jobs
+    const allJobs = await storage.getJobs(userId, { isApplied: false });
+    
+    // Filter out rejected jobs
+    const unappliedJobs = allJobs.filter(j => j.status !== "rejected");
+    
+    // Get reminder threshold (default: 70%)
+    const reminderThresholdSetting = await storage.getSetting("reminder_match_threshold", userId);
+    const reminderThreshold = reminderThresholdSetting ? parseInt(reminderThresholdSetting.value, 10) : 70;
+    
+    // Count high priority unapplied jobs
+    const highPriorityJobs = unappliedJobs.filter(j => j.matchScore && j.matchScore >= reminderThreshold);
+    
+    // Only send reminder if there are unapplied jobs
+    if (unappliedJobs.length === 0) {
+      return {
+        success: true,
+        message: "No unapplied jobs to remind about",
+        sent: false,
+      };
+    }
+
+    // Send Discord reminder
+    const { sendApplyReminder } = await import("../discord");
+    const sent = await sendApplyReminder(userId, unappliedJobs.length, highPriorityJobs.length);
+    
+    if (sent) {
+      await activityLogger.info(
+        `Reminder sent: ${unappliedJobs.length} unapplied jobs (${highPriorityJobs.length} high priority)`,
+        { unappliedJobs: unappliedJobs.length, highPriorityJobs: highPriorityJobs.length },
+        userId
+      );
+    }
+
+    return {
+      success: true,
+      message: `Reminder sent for ${unappliedJobs.length} unapplied jobs`,
+      sent,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Cron] Error executing reminder check:", error);
+    await activityLogger.error(`Reminder check failed: ${errorMessage}`, {}, userId);
+    
+    return {
+      success: false,
+      message: errorMessage,
+      sent: false,
+    };
+  }
+}
+
+/**
+ * Setup reminder cron job
+ */
+export async function setupReminderCron(): Promise<void> {
+  // Stop existing reminder cron job if any
+  if (reminderCronJob) {
+    reminderCronJob.stop();
+    reminderCronJob = null;
+  }
+
+  // Get all users
+  const allUsers = await storage.getAllUsers();
+  console.log(`[Cron] Setting up reminder cron jobs for ${allUsers.length} users`);
+
+  // Check every 15 minutes if it's time to send reminders
+  reminderCronJob = cron.schedule("*/15 * * * *", async () => {
+    try {
+      const allUsers = await storage.getAllUsers();
+
+      for (const user of allUsers) {
+        try {
+          // Check if reminders are enabled
+          const reminderEnabled = await storage.getSetting("reminder_enabled", user.id);
+          if (!reminderEnabled || reminderEnabled.value !== "true") {
+            continue;
+          }
+
+          // Get user's reminder time settings
+          const reminderTimeSetting = await storage.getSetting("reminder_time", user.id);
+          const timezoneSetting = await storage.getSetting("cron_timezone", user.id);
+
+          const reminderTime = reminderTimeSetting?.value || "16:00"; // Default 4pm
+          const timezone = timezoneSetting?.value || "America/Toronto";
+
+          // Check if it's time to send reminder for this user
+          if (shouldRunNow(reminderTime, timezone)) {
+            console.log(
+              `[Cron] Sending reminder for user ${user.id} (${user.username}) at ${reminderTime} ${timezone}`
+            );
+            await executeReminderCheck(user.id);
+          }
+        } catch (error) {
+          console.error(`[Cron] Error processing reminder for user ${user.id}:`, error);
+          // Continue with other users
+        }
+      }
+    } catch (error) {
+      console.error("[Cron] Error in reminder cron job:", error);
+    }
+  });
+
+  console.log("[Cron] Reminder cron job scheduled (checks every 15 minutes)");
+}
+
+/**
+ * Reschedule reminder cron job (called when reminder settings change)
+ */
+export async function rescheduleReminderCron(): Promise<void> {
+  console.log("[Cron] Rescheduling reminder cron job...");
+  await setupReminderCron();
 }
 
 /**
