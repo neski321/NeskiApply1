@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, SlidersHorizontal, Filter } from "lucide-react";
+import { Search, SlidersHorizontal, Filter, ArrowUpDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getJobs } from "@/lib/api";
 import { useState, useMemo } from "react";
@@ -27,6 +27,7 @@ export default function JobFeed() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
   const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company"
 
   // Fetch all jobs
   const { data: allJobs = [], isLoading } = useQuery({
@@ -83,24 +84,48 @@ export default function JobFeed() {
     return filtered;
   }, [allJobs, searchQuery, sourceFilter]);
 
-  // Sort jobs by match score (highest first), then by creation date (newest first)
+  // Sort jobs based on selected sort option
   const sortedJobs = useMemo(() => {
     return [...filteredJobs].sort((a, b) => {
-      // First sort by match score (if available)
-      if (a.matchScore && b.matchScore) {
-        if (b.matchScore !== a.matchScore) {
-          return b.matchScore - a.matchScore;
-        }
-      } else if (a.matchScore && !b.matchScore) {
-        return -1;
-      } else if (!a.matchScore && b.matchScore) {
-        return 1;
+      switch (sortBy) {
+        case "recently-scanned":
+          // Sort by creation date (newest first)
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        
+        case "match-score":
+          // Sort by match score (highest first), then by creation date (newest first)
+          if (a.matchScore && b.matchScore) {
+            if (b.matchScore !== a.matchScore) {
+              return b.matchScore - a.matchScore;
+            }
+          } else if (a.matchScore && !b.matchScore) {
+            return -1;
+          } else if (!a.matchScore && b.matchScore) {
+            return 1;
+          }
+          // If match scores are equal or both missing, sort by creation date
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        
+        case "oldest":
+          // Sort by creation date (oldest first)
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        
+        case "company":
+          // Sort by company name (A-Z)
+          const companyA = (a.company || "").toLowerCase();
+          const companyB = (b.company || "").toLowerCase();
+          if (companyA !== companyB) {
+            return companyA.localeCompare(companyB);
+          }
+          // If companies are equal, sort by creation date (newest first)
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        
+        default:
+          // Default to recently scanned
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
-      
-      // Then sort by creation date (newest first)
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [filteredJobs]);
+  }, [filteredJobs, sortBy]);
 
   const clearFilters = () => {
     setStatusFilter("all");
@@ -127,7 +152,20 @@ export default function JobFeed() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Popover open={showFilters} onOpenChange={setShowFilters}>
+            <div className="flex gap-2">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-[180px]">
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recently-scanned">Recently Scanned</SelectItem>
+                  <SelectItem value="match-score">Match Score</SelectItem>
+                  <SelectItem value="oldest">Oldest First</SelectItem>
+                  <SelectItem value="company">Company (A-Z)</SelectItem>
+                </SelectContent>
+              </Select>
+              <Popover open={showFilters} onOpenChange={setShowFilters}>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="gap-2">
                   <SlidersHorizontal className="h-4 w-4" />
@@ -217,6 +255,7 @@ export default function JobFeed() {
                 </div>
               </PopoverContent>
             </Popover>
+            </div>
           </div>
 
           {hasActiveFilters && (
