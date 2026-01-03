@@ -24,13 +24,14 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "50mb", // Increased limit for n8n ingest endpoint which may send large job arrays
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 // CORS headers for Railway (if needed)
 app.use((req, res, next) => {
