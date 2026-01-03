@@ -298,7 +298,25 @@ export async function registerRoutes(
     },
   });
 
-  app.post("/api/resumes/upload", requireAuth, upload.single("file"), async (req, res) => {
+  app.post("/api/resumes/upload", requireAuth, (req, res, next) => {
+    // Handle multer errors (file size, file type, etc.)
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        // Multer errors
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({ 
+              error: `File too large. Maximum size is ${Math.round(maxFileSize / 1024 / 1024)}MB` 
+            });
+          }
+          return res.status(400).json({ error: err.message });
+        }
+        // Other upload errors (e.g., file type)
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  }, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
       
@@ -351,10 +369,14 @@ export async function registerRoutes(
       }
       
       console.error("Error uploading resume:", error);
-      res.status(500).json({ 
-        error: "Failed to upload and parse resume", 
-        message: error instanceof Error ? error.message : "Unknown error"
-      });
+      
+      // Ensure we always return JSON, even on unexpected errors
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          error: "Failed to upload and parse resume", 
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
     }
   });
 

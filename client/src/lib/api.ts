@@ -112,11 +112,38 @@ export async function uploadResumeFile(file: File, name: string): Promise<Resume
   const response = await fetch("/api/resumes/upload", {
     method: "POST",
     body: formData,
+    credentials: "include",
   });
   
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to upload resume");
+    // Try to parse as JSON, but handle non-JSON responses (like HTML error pages)
+    let errorMessage = "Failed to upload resume";
+    const contentType = response.headers.get("content-type");
+    
+    if (contentType && contentType.includes("application/json")) {
+      try {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } catch (parseError) {
+        // If JSON parsing fails, use status text
+        errorMessage = `${response.status} ${response.statusText}`;
+      }
+    } else {
+      // Non-JSON response (likely HTML error page)
+      const text = await response.text();
+      errorMessage = `Upload failed: ${response.status} ${response.statusText}`;
+      console.error("Non-JSON error response:", text.substring(0, 200));
+    }
+    
+    throw new Error(errorMessage);
+  }
+  
+  // Ensure response is JSON before parsing
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await response.text();
+    console.error("Unexpected non-JSON response:", text.substring(0, 200));
+    throw new Error("Server returned an unexpected response format");
   }
   
   return response.json();
