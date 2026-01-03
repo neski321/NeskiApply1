@@ -10,7 +10,8 @@ import { z } from "zod";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { parseResume } from "./parser/resume-parser";
-import { unlink } from "fs/promises";
+import { unlink, mkdir } from "fs/promises";
+import { existsSync } from "fs";
 import { requireAuth } from "./auth/middleware";
 import { getUserIdFromRequest, getUserFromRequest } from "./auth/helpers";
 import { isAdmin, requireAdmin } from "./auth/admin";
@@ -268,11 +269,35 @@ export async function registerRoutes(
   });
 
   // Upload resume file
-  const uploadDir = process.env.UPLOAD_DIR || "./uploads/resumes";
+  // Use absolute path for Railway compatibility
+  const uploadDir = process.env.UPLOAD_DIR 
+    ? path.resolve(process.env.UPLOAD_DIR)
+    : path.resolve("./uploads/resumes");
   const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || "10485760", 10); // 10MB default
 
+  // Ensure upload directory exists (important for Railway deployments)
+  if (!existsSync(uploadDir)) {
+    try {
+      await mkdir(uploadDir, { recursive: true });
+      console.log(`[Upload] Created upload directory: ${uploadDir}`);
+    } catch (error) {
+      console.error(`[Upload] Failed to create upload directory: ${uploadDir}`, error);
+      throw new Error(`Failed to create upload directory: ${uploadDir}`);
+    }
+  } else {
+    console.log(`[Upload] Using existing upload directory: ${uploadDir}`);
+  }
+
   const storageConfig = multer.diskStorage({
-    destination: (req, file, cb) => {
+    destination: async (req, file, cb) => {
+      // Ensure directory exists before saving (defensive check)
+      if (!existsSync(uploadDir)) {
+        try {
+          await mkdir(uploadDir, { recursive: true });
+        } catch (error) {
+          return cb(new Error(`Failed to create upload directory: ${uploadDir}`));
+        }
+      }
       cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
@@ -331,6 +356,18 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Resume name is required" });
       }
 
+      // Verify file exists before parsing
+      if (!existsSync(req.file.path)) {
+        console.error(`[Upload] File not found at path: ${req.file.path}`);
+        await unlink(req.file.path).catch(() => {}); // Try to clean up if it exists
+        return res.status(500).json({ 
+          error: "Uploaded file not found on server",
+          details: `Expected file at: ${req.file.path}`
+        });
+      }
+
+      console.log(`[Upload] Parsing file: ${req.file.path} (exists: ${existsSync(req.file.path)})`);
+      
       // Parse the uploaded file
       const parsed = await parseResume(req.file.path, req.file.originalname);
 
