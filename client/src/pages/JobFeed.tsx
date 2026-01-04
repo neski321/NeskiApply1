@@ -1,11 +1,13 @@
 import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
+import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, SlidersHorizontal, Filter, ArrowUpDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getJobs } from "@/lib/api";
 import { useState, useMemo } from "react";
+import type { Job } from "@shared/schema";
 import {
   Select,
   SelectContent,
@@ -28,6 +30,7 @@ export default function JobFeed() {
   const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company"
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
   // Fetch all jobs
   const { data: allJobs = [], isLoading } = useQuery({
@@ -94,15 +97,15 @@ export default function JobFeed() {
         
         case "match-score":
           // Sort by match score (highest first), then by creation date (newest first)
-          if (a.matchScore && b.matchScore) {
-            if (b.matchScore !== a.matchScore) {
-              return b.matchScore - a.matchScore;
-            }
-          } else if (a.matchScore && !b.matchScore) {
-            return -1;
-          } else if (!a.matchScore && b.matchScore) {
-            return 1;
-          }
+      if (a.matchScore && b.matchScore) {
+        if (b.matchScore !== a.matchScore) {
+          return b.matchScore - a.matchScore;
+        }
+      } else if (a.matchScore && !b.matchScore) {
+        return -1;
+      } else if (!a.matchScore && b.matchScore) {
+        return 1;
+      }
           // If match scores are equal or both missing, sort by creation date
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         
@@ -122,7 +125,7 @@ export default function JobFeed() {
         
         default:
           // Default to recently scanned
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
     });
   }, [filteredJobs, sortBy]);
@@ -165,7 +168,7 @@ export default function JobFeed() {
                   <SelectItem value="company">Company (A-Z)</SelectItem>
                 </SelectContent>
               </Select>
-              <Popover open={showFilters} onOpenChange={setShowFilters}>
+            <Popover open={showFilters} onOpenChange={setShowFilters}>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="gap-2">
                   <SlidersHorizontal className="h-4 w-4" />
@@ -318,12 +321,18 @@ export default function JobFeed() {
             </div>
             <div className="grid gap-4 pb-10">
               {sortedJobs.map((job) => (
-                <JobCard key={job.id} job={job} />
+                <JobCard key={job.id} job={job} onJobClick={setSelectedJob} />
               ))}
             </div>
           </>
         )}
       </div>
+      
+      <JobDetailModal 
+        job={selectedJob} 
+        open={!!selectedJob} 
+        onOpenChange={(open) => !open && setSelectedJob(null)} 
+      />
     </Layout>
   );
 }

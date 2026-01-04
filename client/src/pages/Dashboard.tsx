@@ -1,5 +1,6 @@
 import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
+import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCircle, Clock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { useMemo, useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getJobs, getStats, syncJobs, getSettings } from "@/lib/api";
+import type { Job } from "@shared/schema";
 import {
   Select,
   SelectContent,
@@ -21,6 +23,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   
   // Fetch settings to get high priority match threshold
   // Refetch on mount to ensure we get the latest settings
@@ -207,13 +210,13 @@ export default function Dashboard() {
               
               <Card className="bg-card/50 border-border/50 backdrop-blur-sm hover:bg-card/80 transition-colors">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Interview Rate</CardTitle>
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Interviews</CardTitle>
                   <Clock className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold font-mono">{stats.interviewRate}</div>
+                  <div className="text-2xl font-bold font-mono">{stats.interviewJobs || 0}</div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    <span className="text-muted-foreground">{stats.appliedJobs} applications</span>
+                    <span className="text-emerald-500 font-medium">{stats.interviewRate} interview rate</span>
                   </p>
                 </CardContent>
               </Card>
@@ -224,7 +227,7 @@ export default function Dashboard() {
                   <XCircle className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold font-mono">{stats.rejectedJobs}</div>
+                  <div className="text-2xl font-bold font-mono">{stats.rejectedJobs || 0}</div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                     <span className="text-muted-foreground">{stats.pendingJobs} pending</span>
                   </p>
@@ -273,19 +276,25 @@ export default function Dashboard() {
                   </>
                 ) : (
                   <>
-                    <p className="text-muted-foreground">No high-priority matches found yet.</p>
-                    <p className="text-sm text-muted-foreground mt-2">Jobs with {highPriorityThreshold}%+ match score will appear here.</p>
+                <p className="text-muted-foreground">No high-priority matches found yet.</p>
+                <p className="text-sm text-muted-foreground mt-2">Jobs with {highPriorityThreshold}%+ match score will appear here.</p>
                   </>
                 )}
               </div>
             ) : (
               <div className="grid gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-forwards">
                 {topJobs.map((job) => (
-                  <JobCard key={job.id} job={job} />
+                  <JobCard key={job.id} job={job} onJobClick={setSelectedJob} />
                 ))}
               </div>
             )}
           </div>
+          
+          <JobDetailModal 
+            job={selectedJob} 
+            open={!!selectedJob} 
+            onOpenChange={(open) => !open && setSelectedJob(null)} 
+          />
 
           {/* Right Column: Charts & Quick Filters */}
           <div className="space-y-4 md:space-y-6 min-w-0">

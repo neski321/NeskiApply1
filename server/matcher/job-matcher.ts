@@ -134,18 +134,18 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
       const existingAnalysis = await storage.getATSAnalysisByJobId(jobId, userId);
       if (!existingAnalysis) {
         // No analysis exists yet, create one
-        await storage.createATSAnalysis({
-          jobId: jobId,
-          jobTitle: job.title,
-          jobCompany: job.company,
-          jobDescription: job.description,
-          bestResumeId: matchResult.bestResumeId,
-          matchScore: matchResult.matchScore,
-          missingKeywords: matchResult.missingKeywords,
-          suggestions: matchResult.suggestions as any,
-          resumeComparisons: matchResult.resumeComparisons as any,
-        }, userId);
-        console.log(`Saved ATS analysis for job ${jobId} to database`);
+      await storage.createATSAnalysis({
+        jobId: jobId,
+        jobTitle: job.title,
+        jobCompany: job.company,
+        jobDescription: job.description,
+        bestResumeId: matchResult.bestResumeId,
+        matchScore: matchResult.matchScore,
+        missingKeywords: matchResult.missingKeywords,
+        suggestions: matchResult.suggestions as any,
+        resumeComparisons: matchResult.resumeComparisons as any,
+      }, userId);
+      console.log(`Saved ATS analysis for job ${jobId} to database`);
       } else {
         // Analysis already exists, just update the job's match score but don't create duplicate analysis
         console.log(`ATS analysis already exists for job ${jobId}, skipping duplicate creation`);

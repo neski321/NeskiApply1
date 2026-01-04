@@ -108,7 +108,7 @@ export default function ATSAnalyzer() {
       // Update analysis result immediately
       if (allAnalyses[newIndex]) {
         setAnalysisResult(allAnalyses[newIndex]);
-      }
+    }
     }
   };
 
@@ -132,7 +132,7 @@ export default function ATSAnalyzer() {
       } else if (analysisError) {
         // Error occurred, try to load job details anyway
         console.error("Error loading analyses:", analysisError);
-        loadJobDetails(jobId);
+      loadJobDetails(jobId);
       }
     }
   }, [jobId, isLoadingAnalysis, allAnalyses.length, analysisError]);
@@ -483,7 +483,7 @@ export default function ATSAnalyzer() {
                     </div>
                   </div>
                 ) : null}
-
+                
                 {/* Best Match Banner */}
                 <div className="rounded-xl bg-gradient-to-br from-primary/20 via-card to-card border border-primary/50 p-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 p-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />

@@ -21,7 +21,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateJob, deleteJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
-export function JobCard({ job }: { job: Job }) {
+export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -92,8 +92,26 @@ export function JobCard({ job }: { job: Job }) {
     // Navigate to ATS Analyzer with this job's data pre-filled
     window.location.href = `/ats-analyzer?jobId=${job.id}`;
   };
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't open modal if clicking on buttons or interactive elements
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("a") ||
+      target.closest("[role='button']") ||
+      target.closest("input") ||
+      target.closest("label")
+    ) {
+      return;
+    }
+    onJobClick?.(job);
+  };
+
   return (
-    <Card className="group relative overflow-hidden border-border/50 bg-card/50 hover:bg-card/80 transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 md:pb-16">
+    <Card 
+      className="group relative overflow-hidden border-border/50 bg-card/50 hover:bg-card/80 transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 md:pb-16 cursor-pointer"
+      onClick={handleCardClick}
+    >
       <div className="p-4 md:p-5 flex items-start gap-4 md:gap-5">
         {/* Match Score */}
         <div className="flex-shrink-0 pt-1">
@@ -104,8 +122,9 @@ export function JobCard({ job }: { job: Job }) {
         <div className="flex-1 min-w-0 space-y-3">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
             <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-base sm:text-lg leading-tight group-hover:text-primary transition-colors">
+              <h3 className="font-bold text-base sm:text-lg leading-tight group-hover:text-primary transition-colors flex items-center gap-2">
                 {job.title}
+                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
               </h3>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground mt-1">
                 <div className="flex items-center gap-1 min-w-0">
@@ -138,7 +157,7 @@ export function JobCard({ job }: { job: Job }) {
                 <Badge variant="default" className="gap-1 text-xs">
                   <CheckCircle2 className="h-3 w-3" />
                   Applied
-                </Badge>
+            </Badge>
               )}
             </div>
           </div>
