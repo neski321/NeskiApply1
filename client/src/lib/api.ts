@@ -206,6 +206,7 @@ export async function analyzeJob(data: {
   jobCompany?: string;
   jobDescription: string;
   jobId?: number;
+  aiProvider?: "perplexity" | "gemini" | "auto";
 }): Promise<ATSAnalysis> {
   const response = await fetch("/api/ats/analyze", {
     method: "POST",
@@ -384,6 +385,30 @@ export async function getAllUsers(): Promise<Array<Omit<User, "password">>> {
 
 // ============ API USAGE API ============
 
+export interface ProviderUsage {
+  dailyCount: number;
+  dailyLimit: number;
+  usagePercentage: number;
+  minuteCount: number;
+  minuteLimit: number;
+}
+
+export interface JSearchUsage {
+  monthlyCount: number;
+  monthlyLimit: number;
+  usagePercentage: number;
+  hourlyCount: number;
+  hourlyLimit: number;
+  resetTime: string | Date;
+}
+
+export interface N8nUsage {
+  monthlyCount: number;
+  monthlyLimit: number;
+  usagePercentage: number;
+  resetTime: string;
+}
+
 export interface APIUsage {
   dailyCount: number;
   dailyLimit: number;
@@ -391,6 +416,12 @@ export interface APIUsage {
   resetTime: string;
   minuteCount: number;
   minuteLimit: number;
+  providers: {
+    perplexity: ProviderUsage;
+    gemini: ProviderUsage;
+    jsearch: JSearchUsage;
+    n8n: N8nUsage;
+  };
 }
 
 export async function getAPIUsage(): Promise<APIUsage> {

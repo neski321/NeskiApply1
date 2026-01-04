@@ -124,6 +124,30 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
         jsearchRapidApiHost?.value // rapidApiHost
       );
       
+      // Log JSearch API call with proper request count based on pages
+      // JSearch pricing: 1 page = 1 request, 2-10 pages = 2x, 10+ pages = 3x
+      if (jsearchJobs.length > 0) {
+        const { logAPICall } = await import("../api-usage");
+        
+        // Calculate actual pages used (from the scrapeJSearch function)
+        const actualNumPages = jsearchOptions.numPages || Math.ceil(jsearchLimit / 10);
+        const finalNumPages = Math.min(actualNumPages, 50);
+        
+        // Calculate request count based on JSearch pricing rules
+        let requestCount = 1; // Default: 1 page = 1 request
+        if (finalNumPages > 1 && finalNumPages <= 10) {
+          requestCount = 2; // 2-10 pages = 2x requests
+        } else if (finalNumPages > 10) {
+          requestCount = 3; // 10+ pages = 3x requests
+        }
+        
+        await logAPICall("JSearch API", "jsearch", { 
+          jobsReturned: jsearchJobs.length,
+          pages: finalNumPages,
+          requestCount: requestCount
+        }, userId);
+      }
+      
       const filteredJobs = jsearchJobs.filter(filterJob);
       let jobsAdded = 0;
       

@@ -574,7 +574,7 @@ export async function registerRoutes(
   app.post("/api/ats/analyze", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const { jobTitle, jobCompany, jobDescription, jobId } = req.body;
+      const { jobTitle, jobCompany, jobDescription, jobId, aiProvider } = req.body;
       
       if (!jobDescription) {
         return res.status(400).json({ error: "Job description is required" });
@@ -699,7 +699,11 @@ export async function registerRoutes(
       
 
       // Call AI with fallback (Perplexity first, then Gemini)
-      const aiResult = await callAIWithFallback(messages, "sonar-pro", userId);
+      // Use provided aiProvider or default to user's preference
+      const providerOverride = aiProvider && ["perplexity", "gemini", "auto"].includes(aiProvider)
+        ? aiProvider as "perplexity" | "gemini" | "auto"
+        : undefined;
+      const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, providerOverride);
       
       if (!aiResult) {
         return res.status(500).json({ 
@@ -744,9 +748,8 @@ export async function registerRoutes(
         }, userId);
       }
 
-      // Log API usage
-      const { logAPICall } = await import("./api-usage");
-      await logAPICall("ATS Analysis", { analysisId: savedAnalysis.id }, userId);
+      // Log API usage (provider is already logged in ai-service)
+      // We don't need to log again here as it's already logged with provider
 
       res.json(savedAnalysis);
     } catch (error) {
@@ -1123,6 +1126,9 @@ export async function registerRoutes(
           { inserted, updated, skipped, processed, source: "n8n" },
           userId
         );
+        // Log n8n API usage (counts jobs ingested)
+        const { logAPICall } = await import("./api-usage");
+        await logAPICall("n8n Job Ingestion", "n8n", { jobsIngested: inserted + updated }, userId);
       } else if (skipped > 0) {
         await activityLogger.info(
           `n8n job ingestion: ${skipped} jobs skipped (duplicates or expired)`,
