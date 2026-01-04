@@ -174,7 +174,7 @@ export function JobCard({ job }: { job: Job }) {
         >
           View Analysis
         </Button>
-        <div className="flex items-center gap-2 h-9 md:h-8 px-3 rounded-md border border-border bg-background">
+        <div className="flex items-center justify-center gap-2 h-9 md:h-8 px-3 rounded-md border border-border bg-background w-full sm:w-auto">
           <Checkbox
             id={`applied-${job.id}`}
             checked={job.isApplied || false}
