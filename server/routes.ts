@@ -768,7 +768,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get analysis by job ID
+  // Get analysis by job ID (latest one)
   app.get("/api/ats/analyses/job/:jobId", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
@@ -783,6 +783,64 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching analysis by job ID:", error);
       res.status(500).json({ error: "Failed to fetch analysis" });
+    }
+  });
+
+  // Get all analyses by job ID
+  app.get("/api/ats/analyses/job/:jobId/all", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = parseInt(req.params.jobId);
+      
+      if (isNaN(jobId)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+      
+      const analyses = await storage.getAllAnalysesByJobId(jobId, userId);
+      console.log(`[Analyses] Found ${analyses.length} analyses for job ${jobId} (userId: ${userId})`);
+      if (analyses.length > 0) {
+        console.log(`[Analyses] Analysis IDs: ${analyses.map(a => a.id).join(", ")}`);
+        console.log(`[Analyses] Analysis jobIds: ${analyses.map(a => a.jobId).join(", ")}`);
+      }
+      
+      res.json(analyses);
+    } catch (error) {
+      console.error("Error fetching all analyses by job ID:", error);
+      res.status(500).json({ error: "Failed to fetch analyses" });
+    }
+  });
+
+  // Delete ATS analysis
+  app.delete("/api/ats/analyses/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const id = parseInt(req.params.id);
+      
+      // Get analysis details before deleting for activity log
+      const analysis = await storage.getATSAnalysis(id, userId);
+      
+      if (!analysis) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+      
+      const deleted = await storage.deleteATSAnalysis(id, userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+      
+      // Log the deletion
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        `Analysis deleted for "${analysis.jobTitle}" at ${analysis.jobCompany || "Unknown"}`,
+        { analysisId: id, jobId: analysis.jobId },
+        userId
+      );
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting analysis:", error);
+      res.status(500).json({ error: "Failed to delete analysis" });
     }
   });
 
@@ -1524,11 +1582,12 @@ export async function registerRoutes(
       // Count high priority unapplied jobs
       const highPriorityJobs = unappliedJobs.filter(j => j.matchScore && j.matchScore >= reminderThreshold);
       
-      // Send test reminder
-      const { sendApplyReminder } = await import("./discord");
+      // Send test reminder (force=true to bypass daily limit for testing)
+      const { executeReminderCheck } = await import("./cron/index");
       
       try {
-        const success = await sendApplyReminder(userId, unappliedJobs.length, highPriorityJobs.length);
+        const result = await executeReminderCheck(userId, true); // force=true for test
+        const success = result.sent || false;
         
         if (success) {
           console.log("[Reminder Test] Success - reminder sent");

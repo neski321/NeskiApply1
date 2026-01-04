@@ -8,36 +8,68 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { MatchRing } from "@/components/ui/match-ring";
-import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { analyzeJob, getResumes, getATSAnalysisByJobId, getJobs } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis } from "@/lib/api";
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 export default function ATSAnalyzer() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [location] = useLocation();
   const [jobTitle, setJobTitle] = useState("");
   const [jobCompany, setJobCompany] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
+  const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
   
   // Get jobId from URL query params
   const urlParams = new URLSearchParams(window.location.search);
   const jobIdParam = urlParams.get("jobId");
   const jobId = jobIdParam ? parseInt(jobIdParam) : null;
 
-  // Load existing analysis if jobId is provided
-  const { data: existingAnalysis, isLoading: isLoadingAnalysis, error: analysisError } = useQuery({
-    queryKey: ["atsAnalysis", jobId],
-    queryFn: () => {
-      if (!jobId) return null;
-      return getATSAnalysisByJobId(jobId);
+  // Load all analyses for this job if jobId is provided
+  const { data: allAnalyses = [], isLoading: isLoadingAnalysis, error: analysisError } = useQuery({
+    queryKey: ["atsAnalyses", jobId],
+    queryFn: async () => {
+      if (!jobId) return [];
+      try {
+        const analyses = await getAllAnalysesByJobId(jobId);
+        return analyses;
+      } catch (error: any) {
+        // If getting all analyses fails, try to get just the latest one as fallback
+        try {
+          const latestAnalysis = await getATSAnalysisByJobId(jobId);
+          return [latestAnalysis]; // Return as array for consistency
+        } catch (fallbackError: any) {
+          // If fallback also fails with 404, return empty array
+          if (fallbackError.message?.includes("not found")) {
+            return [];
+          }
+          throw error; // Throw original error
+        }
+      }
     },
     enabled: !!jobId,
     retry: false,
   });
+
+  // Get the current analysis from the array
+  const existingAnalysis = allAnalyses.length > 0 ? allAnalyses[currentAnalysisIndex] : null;
+  const hasMultipleAnalyses = allAnalyses.length > 1;
 
   // Sync existing analysis data to state when it loads
   useEffect(() => {
@@ -46,19 +78,64 @@ export default function ATSAnalyzer() {
       setJobTitle(existingAnalysis.jobTitle);
       setJobCompany(existingAnalysis.jobCompany || "");
       setJobDescription(existingAnalysis.jobDescription);
-      toast({
-        title: "Analysis loaded",
-        description: "Showing existing analysis for this job.",
-      });
+    } else if (allAnalyses.length === 0 && !isLoadingAnalysis) {
+      // No analyses found - only clear if we were looking for a specific job
+      // Don't clear if user is manually analyzing (no jobId)
+      if (jobId) {
+        setAnalysisResult(null);
+      }
     }
-  }, [existingAnalysis]);
+  }, [existingAnalysis, allAnalyses.length, isLoadingAnalysis, jobId]);
 
-  // Load job details if analysis doesn't exist
+  // Reset to first analysis when analyses change
   useEffect(() => {
-    if (jobId && analysisError && analysisError.message.includes("not found")) {
-      loadJobDetails(jobId);
+    if (allAnalyses.length > 0) {
+      // Only reset index if it's out of bounds
+      if (currentAnalysisIndex >= allAnalyses.length) {
+        setCurrentAnalysisIndex(0);
+      }
+      // Update analysis result when analyses list changes
+      if (allAnalyses[currentAnalysisIndex]) {
+        setAnalysisResult(allAnalyses[currentAnalysisIndex]);
+      }
     }
-  }, [jobId, analysisError]);
+  }, [allAnalyses, currentAnalysisIndex]);
+
+  const handlePreviousAnalysis = () => {
+    if (currentAnalysisIndex > 0) {
+      const newIndex = currentAnalysisIndex - 1;
+      setCurrentAnalysisIndex(newIndex);
+      // Update analysis result immediately
+      if (allAnalyses[newIndex]) {
+        setAnalysisResult(allAnalyses[newIndex]);
+      }
+    }
+  };
+
+  const handleNextAnalysis = () => {
+    if (currentAnalysisIndex < allAnalyses.length - 1) {
+      const newIndex = currentAnalysisIndex + 1;
+      setCurrentAnalysisIndex(newIndex);
+      // Update analysis result immediately
+      if (allAnalyses[newIndex]) {
+        setAnalysisResult(allAnalyses[newIndex]);
+      }
+    }
+  };
+
+  // Load job details if analysis doesn't exist (when query returns empty array)
+  useEffect(() => {
+    if (jobId && !isLoadingAnalysis) {
+      if (allAnalyses.length === 0 && !analysisError) {
+        // No analyses found, try to load job details
+        loadJobDetails(jobId);
+      } else if (analysisError) {
+        // Error occurred, try to load job details anyway
+        console.error("Error loading analyses:", analysisError);
+        loadJobDetails(jobId);
+      }
+    }
+  }, [jobId, isLoadingAnalysis, allAnalyses.length, analysisError]);
 
   const loadJobDetails = async (jobId: number) => {
     try {
@@ -92,8 +169,19 @@ export default function ATSAnalyzer() {
 
   const analyzeMutation = useMutation({
     mutationFn: analyzeJob,
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setAnalysisResult(data);
+      // Reset to show the newest analysis (index 0)
+      setCurrentAnalysisIndex(0);
+        // If this was for a job, invalidate and refetch the query to refresh the list
+        if (data.jobId) {
+          // Invalidate first
+          queryClient.invalidateQueries({ queryKey: ["atsAnalyses", data.jobId] });
+          // Then refetch with a small delay to ensure backend has saved
+          setTimeout(async () => {
+            await queryClient.refetchQueries({ queryKey: ["atsAnalyses", data.jobId] });
+          }, 500);
+        }
       toast({
         title: "Analysis Complete",
         description: "Your job description has been analyzed successfully.",
@@ -125,6 +213,37 @@ export default function ATSAnalyzer() {
       jobId: jobId || undefined,
     });
   };
+
+  const deleteAnalysisMutation = useMutation({
+    mutationFn: (analysisId: number) => deleteATSAnalysis(analysisId),
+    onSuccess: () => {
+      // Invalidate and refetch analyses
+      if (jobId) {
+        queryClient.invalidateQueries({ queryKey: ["atsAnalyses", jobId] });
+        queryClient.refetchQueries({ queryKey: ["atsAnalyses", jobId] });
+      }
+      toast({
+        title: "Analysis deleted",
+        description: "The analysis has been deleted successfully.",
+      });
+      // Adjust index if needed (if we deleted the last one, go back)
+      if (currentAnalysisIndex >= allAnalyses.length - 1 && currentAnalysisIndex > 0) {
+        setCurrentAnalysisIndex(currentAnalysisIndex - 1);
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteAnalysis = (analysisId: number) => {
+    deleteAnalysisMutation.mutate(analysisId);
+  };
+
 
   const bestResume = analysisResult ? resumes.find(r => r.id === analysisResult.bestResumeId) : null;
   const suggestions = analysisResult?.suggestions as Array<{title: string; description: string; type: string}> || [];
@@ -245,16 +364,141 @@ export default function ATSAnalyzer() {
             ) : (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 
+                {/* Analysis Navigation Header - Show if there are 2 or more analyses */}
+                {allAnalyses.length > 1 ? (
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between p-3 sm:p-4 rounded-lg bg-card/50 border border-border/50 gap-3">
+                    {/* Mobile: Top row with Previous/Next buttons */}
+                    <div className="flex items-center justify-between sm:hidden gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePreviousAnalysis}
+                        disabled={currentAnalysisIndex === 0 || deleteAnalysisMutation.isPending}
+                        className="gap-2 flex-1"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleNextAnalysis}
+                        disabled={currentAnalysisIndex === allAnalyses.length - 1 || deleteAnalysisMutation.isPending}
+                        className="gap-2 flex-1"
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Desktop: Previous button */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePreviousAnalysis}
+                      disabled={currentAnalysisIndex === 0 || deleteAnalysisMutation.isPending}
+                      className="gap-2 hidden sm:flex"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Previous
+                    </Button>
+
+                    {/* Center: Analysis info and indicators */}
+                    <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 flex-1 justify-center">
+                      <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                        Analysis {currentAnalysisIndex + 1} of {allAnalyses.length}
+                      </span>
+                      <div className="flex gap-1.5">
+                        {allAnalyses.map((_, index) => (
+                          <div
+                            key={index}
+                            className={cn(
+                              "h-2 rounded-full transition-all",
+                              index === currentAnalysisIndex
+                                ? "w-6 bg-primary"
+                                : "w-2 bg-muted"
+                            )}
+                          />
+                        ))}
+                      </div>
+                      {existingAnalysis?.createdAt && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(existingAnalysis.createdAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Right side: Delete and Next buttons */}
+                    <div className="flex items-center gap-2 justify-end sm:justify-start">
+                      {allAnalyses.length > 2 && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={deleteAnalysisMutation.isPending}
+                              className="gap-2 border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              <span className="hidden sm:inline">Delete</span>
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="w-[calc(100vw-2rem)] max-w-md">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Analysis</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this analysis? This action cannot be undone.
+                                {existingAnalysis?.createdAt && (
+                                  <span className="block mt-2 text-xs">
+                                    Created: {new Date(existingAnalysis.createdAt).toLocaleString()}
+                                  </span>
+                                )}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                              <AlertDialogCancel disabled={deleteAnalysisMutation.isPending} className="w-full sm:w-auto">
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => existingAnalysis && handleDeleteAnalysis(existingAnalysis.id)}
+                                disabled={deleteAnalysisMutation.isPending}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 w-full sm:w-auto"
+                              >
+                                {deleteAnalysisMutation.isPending ? "Deleting..." : "Delete"}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleNextAnalysis}
+                        disabled={currentAnalysisIndex === allAnalyses.length - 1 || deleteAnalysisMutation.isPending}
+                        className="gap-2 hidden sm:flex"
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* Best Match Banner */}
                 <div className="rounded-xl bg-gradient-to-br from-primary/20 via-card to-card border border-primary/50 p-6 relative overflow-hidden">
                   <div className="absolute top-0 right-0 p-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
                   
                   <div className="flex items-center gap-6 relative z-10">
                     <MatchRing score={analysisResult.matchScore} size="lg" />
-                    <div>
+                    <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border-emerald-500/50">Recommended Resume</Badge>
                         <span className="text-xs text-muted-foreground">Matched against {resumes.length} resumes</span>
+                        {allAnalyses.length > 1 && (
+                          <Badge variant="outline" className="text-xs">
+                            {currentAnalysisIndex === 0 ? "Latest" : `Analysis ${currentAnalysisIndex + 1}`}
+                          </Badge>
+                        )}
                       </div>
                       <h2 className="text-2xl font-bold">{bestResume?.name || "Unknown Resume"}</h2>
                       <p className="text-muted-foreground">

@@ -19,7 +19,7 @@ import {
   activityLogs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, or, isNull } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull, asc } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -49,6 +49,8 @@ export interface IStorage {
   getATSAnalyses(userId: string, limit?: number): Promise<ATSAnalysis[]>;
   getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined>;
   getATSAnalysisByJobId(jobId: number, userId: string): Promise<ATSAnalysis | undefined>;
+  getAllAnalysesByJobId(jobId: number, userId: string): Promise<ATSAnalysis[]>;
+  deleteATSAnalysis(id: number, userId: string): Promise<boolean>;
 
   // Settings
   getSetting(key: string, userId: string): Promise<Setting | undefined>;
@@ -190,6 +192,8 @@ export class DatabaseStorage implements IStorage {
 
   // ATS Analyses
   async createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis> {
+    // Create the analysis - no limit on how many analyses per job
+    // All analyses with the same jobId will be grouped together
     const [newAnalysis] = await db.insert(atsAnalyses).values({ ...analysis, userId }).returning();
     return newAnalysis;
   }
@@ -211,6 +215,19 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(atsAnalyses.createdAt))
       .limit(1);
     return analysis || undefined;
+  }
+
+  async getAllAnalysesByJobId(jobId: number, userId: string): Promise<ATSAnalysis[]> {
+    return await db
+      .select()
+      .from(atsAnalyses)
+      .where(and(eq(atsAnalyses.jobId, jobId), eq(atsAnalyses.userId, userId)))
+      .orderBy(desc(atsAnalyses.createdAt));
+  }
+
+  async deleteATSAnalysis(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(atsAnalyses).where(and(eq(atsAnalyses.id, id), eq(atsAnalyses.userId, userId)));
+    return result.rowCount ? result.rowCount > 0 : false;
   }
 
   // Settings
