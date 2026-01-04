@@ -205,6 +205,48 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
     n8nPeriodStart.setHours(0, 0, 0, 0);
     n8nResetTime.setHours(0, 0, 0, 0);
     
+    // Method 1: Count n8n API calls (ingestions) from activity logs
+    // This counts the number of times the ingestion endpoint was called
+    const n8nIngestionLogs = allLogs.filter(log => {
+      // Check if it's an n8n ingestion log
+      const message = log.message?.toLowerCase() || "";
+      // Message format: "API call: n8n Job Ingestion" or "n8n job ingestion: X new jobs added"
+      const hasN8nInMessage = message.includes("n8n");
+      const hasIngestionInMessage = message.includes("ingestion") || message.includes("job ingestion");
+      
+      let isN8nIngestion = false;
+      if (log.metadata && typeof log.metadata === 'object') {
+        // Primary check: provider is n8n and it's an API call
+        const hasN8nProvider = log.metadata.provider === "n8n";
+        const hasApiCallFlag = log.metadata.apiCall === true;
+        
+        // If provider is n8n and it's an API call, it's definitely an n8n ingestion
+        if (hasN8nProvider && hasApiCallFlag) {
+          isN8nIngestion = true;
+        } else if (hasApiCallFlag && hasN8nInMessage && hasIngestionInMessage) {
+          // Fallback: API call with n8n and ingestion in message
+          isN8nIngestion = true;
+        } else if (log.metadata.source === "n8n" && hasIngestionInMessage) {
+          // Also check for source: "n8n" in metadata
+          isN8nIngestion = true;
+        }
+      } else {
+        // No metadata: check message only
+        isN8nIngestion = hasN8nInMessage && hasIngestionInMessage;
+      }
+      
+      if (!isN8nIngestion) return false;
+      
+      // Check if log is within the current period
+      const logDate = new Date(log.createdAt);
+      logDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+      const isInPeriod = logDate.getTime() >= n8nPeriodStart.getTime() && 
+                         logDate.getTime() < n8nResetTime.getTime();
+      
+      return isInPeriod;
+    });
+    
+    // Method 2: Count n8n jobs from database
     // Get all jobs for this user
     const allJobs = await storage.getJobs(userId);
     
@@ -228,8 +270,35 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       return isInPeriod;
     });
     
-    // Count all n8n jobs in the period (includes test data if within period)
-    const n8nMonthlyCount = n8nJobs.length;
+    // Sum up jobsIngested from all ingestion logs - this is the source of truth
+    // It counts the actual number of jobs ingested per API call, including all ingestions in the period
+    let totalJobsFromLogs = 0;
+    n8nIngestionLogs.forEach(log => {
+      if (log.metadata && typeof log.metadata === 'object' && typeof log.metadata.jobsIngested === 'number') {
+        totalJobsFromLogs += log.metadata.jobsIngested;
+      }
+    });
+    
+    // Count jobs from database as verification
+    // Note: This may be less than logs if jobs were deleted, duplicates updated, etc.
+    const n8nJobsCount = n8nJobs.length;
+    const n8nIngestionCount = n8nIngestionLogs.length;
+    
+    // Prioritize logs count since it's the accurate record of what was actually ingested
+    // This ensures API usage tracking reflects actual API consumption, not current database state
+    let n8nMonthlyCount = totalJobsFromLogs;
+    
+    // If logs show 0 but we have jobs in database, use database count as fallback
+    // This handles edge cases where logs might be missing but jobs exist
+    if (n8nMonthlyCount === 0 && n8nJobsCount > 0) {
+      n8nMonthlyCount = n8nJobsCount;
+    }
+    
+    // Final fallback: if still 0 but we have ingestion logs, use ingestion count as minimum
+    // (at least 1 job per ingestion, though this is less accurate)
+    if (n8nMonthlyCount === 0 && n8nIngestionCount > 0) {
+      n8nMonthlyCount = n8nIngestionCount;
+    }
     
     // Calculate reset time (12:00 AM tomorrow / midnight)
     const resetTime = new Date();
