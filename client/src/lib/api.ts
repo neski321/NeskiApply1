@@ -122,7 +122,7 @@ export async function uploadResumeFile(file: File, name: string): Promise<Resume
     
     if (contentType && contentType.includes("application/json")) {
       try {
-        const error = await response.json();
+    const error = await response.json();
         errorMessage = error.error || error.message || errorMessage;
       } catch (parseError) {
         // If JSON parsing fails, use status text
@@ -299,6 +299,7 @@ export async function setSetting(key: string, value: string): Promise<Setting> {
 // ============ STATS API ============
 
 export interface DashboardStats {
+  linksViewed?: number;
   totalJobs: number;
   todayJobs: number;
   yesterdayJobs: number;

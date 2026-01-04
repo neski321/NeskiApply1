@@ -57,6 +57,8 @@ export const jobs = pgTable("jobs", {
   url: text("url"),
   status: text("status").notNull().default("pending"),
   isApplied: boolean("is_applied").default(false),
+  gotInterview: boolean("got_interview").default(false),
+  rejected: boolean("rejected").default(false),
   matchScore: integer("match_score"),
   matchedResumeId: integer("matched_resume_id"),
   matchReasoning: text("match_reasoning").array(),

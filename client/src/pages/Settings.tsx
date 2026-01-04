@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Save, Check, Play, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,13 @@ export default function Settings() {
   const [location] = useLocation();
   const [isSaving, setIsSaving] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
+  const [showN8nNotice, setShowN8nNotice] = useState(() => {
+    // Check localStorage to see if notice has been dismissed
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("n8n-notice-dismissed") !== "true";
+    }
+    return true;
+  });
   const [requiredSettingsStatus, setRequiredSettingsStatus] = useState<{
     configured: boolean;
     missing: string[];
@@ -555,6 +562,56 @@ export default function Settings() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* n8n Scraping Notice */}
+            {showN8nNotice && (
+              <Alert className="bg-primary/5 border-primary/20 relative">
+                <Info className="h-4 w-4 text-primary" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setShowN8nNotice(false);
+                    if (typeof window !== "undefined") {
+                      localStorage.setItem("n8n-notice-dismissed", "true");
+                    }
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <AlertTitle className="text-base font-semibold pr-8">n8n Job Scraping Configuration</AlertTitle>
+                <AlertDescription className="mt-2 space-y-2">
+                  <p className="text-sm">
+                    <strong>Important:</strong> n8n job scraping is not configured automatically after account setup. 
+                    To activate the n8n workflow for your account, please reach out to the developer.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => window.open("https://neskines-o.vercel.app/", "_blank")}
+                    >
+                      Contact Developer
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Visit{" "}
+                      <a 
+                        href="https://neskines-o.vercel.app/" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary underline hover:text-primary/80"
+                      >
+                        neskines-o.vercel.app
+                      </a>
+                      {" "}to get in touch
+                    </span>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
           </TabsContent>
 
           {/* API Keys Tab */}

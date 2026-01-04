@@ -19,7 +19,7 @@ import {
   activityLogs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, or, isNull, asc } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull, asc, lt } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -42,6 +42,7 @@ export interface IStorage {
   getJob(id: number, userId: string): Promise<Job | undefined>;
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string): Promise<boolean>;
+  deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job>;
 
   // ATS Analyses
@@ -168,6 +169,32 @@ export class DatabaseStorage implements IStorage {
     // Note: We keep activity logs that reference this job for historical purposes
     const result = await db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  async deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number> {
+    // Calculate the cutoff date (30 days ago)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    cutoffDate.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
+    
+    // Delete jobs that:
+    // 1. Belong to this user
+    // 2. Were created more than `daysOld` days ago
+    // 3. Have not been applied to (isApplied = false or null)
+    const result = await db
+      .delete(jobs)
+      .where(
+        and(
+          eq(jobs.userId, userId),
+          lt(jobs.createdAt, cutoffDate),
+          or(
+            eq(jobs.isApplied, false),
+            isNull(jobs.isApplied)
+          )
+        )
+      );
+    
+    return result.rowCount || 0;
   }
 
   async upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job> {

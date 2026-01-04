@@ -5,6 +5,7 @@ import { activityLogger } from "../logger";
 
 let cronJob: ScheduledTask | null = null;
 let reminderCronJob: ScheduledTask | null = null;
+let cleanupCronJob: ScheduledTask | null = null;
 // Track last reminder sent date per user to prevent duplicates
 const lastReminderSent: Map<string, string> = new Map(); // userId -> date string (YYYY-MM-DD)
 
@@ -326,6 +327,81 @@ export async function setupReminderCron(): Promise<void> {
 }
 
 /**
+ * Execute cleanup of old unapplied jobs for a specific user
+ */
+export async function executeJobCleanup(userId: string): Promise<{
+  success: boolean;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    // Delete jobs that are 30+ days old and haven't been applied to
+    const deletedCount = await storage.deleteOldUnappliedJobs(userId, 30);
+    
+    if (deletedCount > 0) {
+      await activityLogger.info(
+        `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (30+ days old)`,
+        { deletedCount },
+        userId
+      );
+    }
+
+    return {
+      success: true,
+      message: `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'}`,
+      deletedCount,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Cron] Error executing job cleanup:", error);
+    await activityLogger.error(`Job cleanup failed: ${errorMessage}`, {}, userId);
+    
+    return {
+      success: false,
+      message: errorMessage,
+    };
+  }
+}
+
+/**
+ * Setup job cleanup cron job (runs daily at 2 AM)
+ */
+export async function setupJobCleanup(): Promise<void> {
+  // Stop existing cleanup cron job if any
+  if (cleanupCronJob) {
+    cleanupCronJob.stop();
+    cleanupCronJob = null;
+  }
+
+  // Get all users
+  const allUsers = await storage.getAllUsers();
+  console.log(`[Cron] Setting up job cleanup cron job for ${allUsers.length} users`);
+
+  // Run daily at 2 AM to clean up old unapplied jobs
+  cleanupCronJob = cron.schedule("0 2 * * *", async () => {
+    try {
+      const allUsers = await storage.getAllUsers();
+
+      for (const user of allUsers) {
+        try {
+          console.log(
+            `[Cron] Running job cleanup for user ${user.id} (${user.username})`
+          );
+          await executeJobCleanup(user.id);
+        } catch (error) {
+          console.error(`[Cron] Error cleaning up jobs for user ${user.id}:`, error);
+          // Continue with other users
+        }
+      }
+    } catch (error) {
+      console.error("[Cron] Error in cleanup cron job:", error);
+    }
+  });
+
+  console.log("[Cron] Job cleanup cron job scheduled (runs daily at 2 AM)");
+}
+
+/**
  * Reschedule reminder cron job (called when reminder settings change)
  */
 export async function rescheduleReminderCron(): Promise<void> {
@@ -373,10 +449,10 @@ function shouldRunNow(scheduleTime: string, timezone: string, isReminder: boolea
       return timeDiff <= 5; // Within 5 minutes of scheduled time (more precise)
     } else {
       // For scraping, use the original 15-minute window
-      const timeDiff = Math.abs(
-        currentHour * 60 + currentMinute - (scheduleHour * 60 + scheduleMinute)
-      );
-      return timeDiff <= 15; // Within 15 minutes of scheduled time
+    const timeDiff = Math.abs(
+      currentHour * 60 + currentMinute - (scheduleHour * 60 + scheduleMinute)
+    );
+    return timeDiff <= 15; // Within 15 minutes of scheduled time
     }
   } catch (error) {
     console.error("[Cron] Error checking schedule time:", error);

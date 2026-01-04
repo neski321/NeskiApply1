@@ -367,7 +367,7 @@ export async function registerRoutes(
       }
 
       console.log(`[Upload] Parsing file: ${req.file.path} (exists: ${existsSync(req.file.path)})`);
-      
+
       // Parse the uploaded file
       const parsed = await parseResume(req.file.path, req.file.originalname);
 
@@ -409,10 +409,10 @@ export async function registerRoutes(
       
       // Ensure we always return JSON, even on unexpected errors
       if (!res.headersSent) {
-        res.status(500).json({ 
-          error: "Failed to upload and parse resume", 
-          message: error instanceof Error ? error.message : "Unknown error"
-        });
+      res.status(500).json({ 
+        error: "Failed to upload and parse resume", 
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
       }
     }
   });
@@ -507,6 +507,24 @@ export async function registerRoutes(
           await activityLogger.success(`Marked as applied: "${job.title}" at ${job.company}`, { jobId: id }, userId);
         } else {
           await activityLogger.info(`Unmarked as applied: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        }
+      }
+      
+      // Log activity for interview status changes
+      if (validatedData.gotInterview !== undefined) {
+        if (validatedData.gotInterview === true) {
+          await activityLogger.success(`Got interview: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        } else {
+          await activityLogger.info(`Removed interview status: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        }
+      }
+      
+      // Log activity for rejection status changes
+      if (validatedData.rejected !== undefined) {
+        if (validatedData.rejected === true) {
+          await activityLogger.info(`Marked as rejected: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+        } else {
+          await activityLogger.info(`Removed rejection status: "${job.title}" at ${job.company}`, { jobId: id }, userId);
         }
       }
       
@@ -1447,8 +1465,8 @@ export async function registerRoutes(
       const linksViewed = jobs.filter(j => j.status === "viewed" || j.status === "applied").length; // Count both "viewed" and legacy "applied" as viewed
       const appliedJobs = jobs.filter(j => j.isApplied === true).length; // Count jobs actually marked as applied
       const pendingJobs = jobs.filter(j => j.status === "pending").length;
-      const rejectedJobs = jobs.filter(j => j.status === "rejected").length;
-      const interviewJobs = jobs.filter(j => j.status === "interview").length;
+      const rejectedJobs = jobs.filter(j => j.rejected === true).length; // Use new rejected boolean field
+      const interviewJobs = jobs.filter(j => j.gotInterview === true).length; // Use new gotInterview boolean field
       
       // Jobs from today
       const today = new Date();
