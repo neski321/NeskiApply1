@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetailModal } from "@/components/jobs/JobDetailModal";
+import { SkillGapAnalysisModal } from "@/components/SkillGapAnalysisModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCircle, Clock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getJobs, getStats, syncJobs, getSettings } from "@/lib/api";
 import type { Job } from "@shared/schema";
+import { useLocation } from "wouter";
 import {
   Select,
   SelectContent,
@@ -22,8 +24,10 @@ import {
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [showSkillGapModal, setShowSkillGapModal] = useState(false);
   
   // Fetch settings to get high priority match threshold
   // Refetch on mount to ensure we get the latest settings
@@ -105,29 +109,37 @@ export default function Dashboard() {
 
   // Generate chart data from last 7 days
   const generateChartData = () => {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const chartData = days.map(day => ({ date: day, matches: 0 }));
-    
-    // Count jobs by day of week for the last 7 days
+    // Get the last 7 days in chronological order (oldest to newest)
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const date = new Date();
-      date.setDate(date.getDate() - i);
+      date.setDate(date.getDate() - (6 - i)); // Start from 6 days ago, go to today
+      date.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
       return date;
     });
 
-    last7Days.forEach(date => {
-      const dayName = days[date.getDay()];
+    // Create chart data with actual dates in chronological order
+    const chartData = last7Days.map(date => {
       const dayJobs = jobs.filter(j => {
         const jobDate = new Date(j.createdAt);
-        return jobDate.toDateString() === date.toDateString();
+        jobDate.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
+        return jobDate.getTime() === date.getTime();
       });
-      const chartItem = chartData.find(d => d.date === dayName);
-      if (chartItem) {
-        chartItem.matches = dayJobs.length;
-      }
+
+      // Format date for display (e.g., "Jan 15" or "Mon 15")
+      const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
+      const dayNumber = date.getDate();
+      const monthName = date.toLocaleDateString("en-US", { month: "short" });
+      
+      return {
+        date: `${dayName} ${dayNumber}`, // e.g., "Mon 15"
+        fullDate: date.toISOString().split('T')[0], // For tooltip
+        matches: dayJobs.length,
+        sortKey: date.getTime() // For sorting
+      };
     });
 
-    return chartData.reverse();
+    // Ensure chronological order (oldest to newest, left to right)
+    return chartData.sort((a, b) => a.sortKey - b.sortKey);
   };
 
   const chartData = generateChartData();
@@ -295,6 +307,13 @@ export default function Dashboard() {
             open={!!selectedJob} 
             onOpenChange={(open) => !open && setSelectedJob(null)} 
           />
+          
+          <SkillGapAnalysisModal
+            open={showSkillGapModal}
+            onOpenChange={setShowSkillGapModal}
+            stats={stats || null}
+            isLoading={statsLoading}
+          />
 
           {/* Right Column: Charts & Quick Filters */}
           <div className="space-y-4 md:space-y-6 min-w-0">
@@ -316,10 +335,27 @@ export default function Dashboard() {
                          </linearGradient>
                        </defs>
                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                       <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} />
+                       <XAxis 
+                         dataKey="date" 
+                         stroke="hsl(var(--muted-foreground))" 
+                         fontSize={10} 
+                         tickLine={false} 
+                         axisLine={false}
+                       />
                        <Tooltip 
                           contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                           itemStyle={{ color: 'hsl(var(--foreground))' }}
+                          labelFormatter={(value, payload) => {
+                            if (payload && payload[0] && payload[0].payload?.fullDate) {
+                              const date = new Date(payload[0].payload.fullDate);
+                              return date.toLocaleDateString("en-US", { 
+                                weekday: "long", 
+                                month: "long", 
+                                day: "numeric" 
+                              });
+                            }
+                            return value;
+                          }}
                        />
                        <Area type="monotone" dataKey="matches" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorMatches)" strokeWidth={2} />
                      </AreaChart>
@@ -343,7 +379,11 @@ export default function Dashboard() {
                           <span className="text-muted-foreground font-mono">{item.count} {item.count === 1 ? 'job' : 'jobs'}</span>
                         </div>
                       ))}
-                      <Button variant="outline" className="w-full mt-2 text-xs h-8">
+                      <Button 
+                        variant="outline" 
+                        className="w-full mt-2 text-xs h-8"
+                        onClick={() => setShowSkillGapModal(true)}
+                      >
                         View Skill Gap Analysis
                       </Button>
                     </>

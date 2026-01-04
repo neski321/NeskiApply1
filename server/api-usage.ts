@@ -2,19 +2,53 @@ import { storage } from "./storage";
 import { activityLogger } from "./logger";
 
 /**
- * Track API usage for Perplexity API
- * Perplexity free tier: 5 requests per minute, 200 requests per day
+ * API Usage Limits
  */
 const PERPLEXITY_DAILY_LIMIT = 200;
 const PERPLEXITY_MINUTE_LIMIT = 5;
+const GEMINI_DAILY_LIMIT = 200; // Assuming similar limit
+const GEMINI_MINUTE_LIMIT = 5;
+const JSEARCH_MONTHLY_LIMIT = 200; // Basic plan: 200 requests/month (hard limit)
+const JSEARCH_HOURLY_LIMIT = 1000; // Rate limit: 1000 requests/hour
+const N8N_MONTHLY_LIMIT = 1000;
+
+interface ProviderUsage {
+  dailyCount: number;
+  dailyLimit: number;
+  usagePercentage: number;
+  minuteCount: number;
+  minuteLimit: number;
+}
+
+interface JSearchUsage {
+  monthlyCount: number;
+  monthlyLimit: number;
+  usagePercentage: number;
+  hourlyCount: number;
+  hourlyLimit: number;
+  resetTime: Date; // 6th of next month
+}
 
 interface APIUsage {
+  // Overall (for backward compatibility - shows Perplexity as primary)
   dailyCount: number;
   dailyLimit: number;
   usagePercentage: number;
   resetTime: Date;
   minuteCount: number;
   minuteLimit: number;
+  // Breakdown by provider
+  providers: {
+    perplexity: ProviderUsage;
+    gemini: ProviderUsage;
+    jsearch: ProviderUsage;
+    n8n: {
+      monthlyCount: number;
+      monthlyLimit: number;
+      usagePercentage: number;
+      resetTime: Date; // First day of next month
+    };
+  };
 }
 
 /**
@@ -22,61 +56,256 @@ interface APIUsage {
  */
 export async function getAPIUsage(userId: string): Promise<APIUsage> {
   try {
+    // Get current date/time (used for both daily and monthly calculations)
+    const now = new Date();
+    
     // Get all activity logs for this user
     const allLogs = await storage.getActivityLogs(userId, 1000);
     
-    // Get today's date
-    const today = new Date();
+    // Get today's date at midnight (12:00 AM)
+    const today = new Date(now);
     today.setHours(0, 0, 0, 0);
     
-    // Filter logs from today
+    // Get tomorrow's date at midnight (12:00 AM) for comparison
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Filter logs from today (between today 12:00 AM and tomorrow 12:00 AM)
     const todayLogs = allLogs.filter(log => {
       const logDate = new Date(log.createdAt);
-      return logDate >= today;
+      logDate.setHours(0, 0, 0, 0);
+      return logDate.getTime() >= today.getTime() && logDate.getTime() < tomorrow.getTime();
     });
     
-    // Count API calls - look for logs with apiCall flag or specific patterns
-    const apiCallLogs = todayLogs.filter(log => {
-      // Check if metadata has apiCall flag
-      if (log.metadata && typeof log.metadata === 'object' && 'apiCall' in log.metadata) {
-        return true;
+    // Count Perplexity API calls
+    const perplexityLogs = todayLogs.filter(log => {
+      if (log.metadata && typeof log.metadata === 'object') {
+        return log.metadata.provider === "perplexity" || 
+               (log.metadata.apiCall && log.message?.toLowerCase().includes("perplexity"));
       }
-      // Also count ATS analysis and job matching (they use Perplexity)
-      const message = log.message.toLowerCase();
-      return (
-        message.includes("ats analysis") ||
-        (message.includes("matched") && message.includes("score")) ||
-        (log.metadata && (log.metadata.analysisId || log.metadata.matchScore))
-      );
+      return false;
     });
     
-    const dailyCount = apiCallLogs.length;
-    const usagePercentage = Math.min(100, Math.round((dailyCount / PERPLEXITY_DAILY_LIMIT) * 100));
+    // Count Gemini API calls
+    const geminiLogs = todayLogs.filter(log => {
+      if (log.metadata && typeof log.metadata === 'object') {
+        return log.metadata.provider === "gemini" || 
+               (log.metadata.apiCall && log.message?.toLowerCase().includes("gemini"));
+      }
+      return false;
+    });
     
-    // Calculate reset time (midnight tomorrow)
-    const resetTime = new Date();
-    resetTime.setDate(resetTime.getDate() + 1);
-    resetTime.setHours(0, 0, 0, 0);
+    // Count JSearch API calls (monthly tracking, not daily)
+    // JSearch has monthly limit (200/month) and hourly rate limit (1000/hour)
+    // JSearch resets on the 6th of every month (reuse 'now' from function start)
+    let jsearchPeriodStart: Date;
+    let jsearchResetTime: Date;
     
-    // Count API calls in the last minute (for rate limiting)
+    if (now.getDate() >= 6) {
+      // Current period started on the 6th of this month
+      jsearchPeriodStart = new Date(now.getFullYear(), now.getMonth(), 6);
+      // Reset time is the 6th of next month
+      jsearchResetTime = new Date(now.getFullYear(), now.getMonth() + 1, 6);
+    } else {
+      // Current period started on the 6th of last month
+      jsearchPeriodStart = new Date(now.getFullYear(), now.getMonth() - 1, 6);
+      // Reset time is the 6th of this month
+      jsearchResetTime = new Date(now.getFullYear(), now.getMonth(), 6);
+    }
+    jsearchPeriodStart.setHours(0, 0, 0, 0);
+    jsearchResetTime.setHours(0, 0, 0, 0);
+    
+    // Get all JSearch logs from current period
+    // Use the same date comparison logic as n8n (which works correctly)
+    const jsearchLogsThisMonth = allLogs.filter(log => {
+      // Check if it's a JSearch log
+      const message = log.message?.toLowerCase() || "";
+      const hasJSearchInMessage = message.includes("jsearch");
+      
+      let isJSearchLog = false;
+      if (log.metadata && typeof log.metadata === 'object') {
+        const hasJSearchProvider = log.metadata.provider === "jsearch";
+        const hasApiCallFlag = log.metadata.apiCall === true;
+        isJSearchLog = hasJSearchProvider || (hasApiCallFlag && hasJSearchInMessage);
+      } else {
+        isJSearchLog = hasJSearchInMessage;
+      }
+      
+      if (!isJSearchLog) return false;
+      
+      // Check date using same logic as n8n (which works)
+      const jobDate = new Date(log.createdAt);
+      jobDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+      const isInPeriod = jobDate.getTime() >= jsearchPeriodStart.getTime() && 
+                         jobDate.getTime() < jsearchResetTime.getTime();
+      
+      return isInPeriod;
+    });
+    
+    // Calculate total JSearch requests this month (sum up the request counts from metadata)
+    let jsearchMonthlyCount = 0;
+    jsearchLogsThisMonth.forEach(log => {
+      if (log.metadata && typeof log.metadata === 'object') {
+        if (typeof log.metadata.requestCount === 'number') {
+          jsearchMonthlyCount += log.metadata.requestCount;
+        } else {
+          // Fallback: count as 1 request if no requestCount specified (legacy logs)
+          jsearchMonthlyCount += 1;
+        }
+      } else {
+        // No metadata: count as 1 request (legacy logs)
+        jsearchMonthlyCount += 1;
+      }
+    });
+    
+    
+    // Count JSearch API calls in the last hour (for rate limiting)
+    const oneHourAgo = new Date(Date.now() - 3600000);
+    const jsearchRecentHour = jsearchLogsThisMonth.filter(log => {
+      const logDate = new Date(log.createdAt);
+      return logDate >= oneHourAgo;
+    });
+    
+    let jsearchHourlyCount = 0;
+    jsearchRecentHour.forEach(log => {
+      if (log.metadata && typeof log.metadata === 'object' && typeof log.metadata.requestCount === 'number') {
+        jsearchHourlyCount += log.metadata.requestCount;
+      } else {
+        jsearchHourlyCount += 1;
+      }
+    });
+    
+    // Count API calls in the last minute for other providers
     const oneMinuteAgo = new Date(Date.now() - 60000);
-    const recentApiCalls = apiCallLogs.filter(log => {
+    const perplexityRecent = perplexityLogs.filter(log => {
       const logDate = new Date(log.createdAt);
       return logDate >= oneMinuteAgo;
     });
-    const minuteCount = recentApiCalls.length;
+    const geminiRecent = geminiLogs.filter(log => {
+      const logDate = new Date(log.createdAt);
+      return logDate >= oneMinuteAgo;
+    });
+    
+    // Calculate n8n monthly usage (count jobs with source containing "n8n" from current period)
+    // n8n resets on the 6th of every month (reuse 'now' from JSearch calculation above)
+    let n8nPeriodStart: Date;
+    let n8nResetTime: Date;
+    
+    if (now.getDate() >= 6) {
+      // Current period started on the 6th of this month
+      n8nPeriodStart = new Date(now.getFullYear(), now.getMonth(), 6);
+      // Reset time is the 6th of next month
+      n8nResetTime = new Date(now.getFullYear(), now.getMonth() + 1, 6);
+    } else {
+      // Current period started on the 6th of last month
+      n8nPeriodStart = new Date(now.getFullYear(), now.getMonth() - 1, 6);
+      // Reset time is the 6th of this month
+      n8nResetTime = new Date(now.getFullYear(), now.getMonth(), 6);
+    }
+    n8nPeriodStart.setHours(0, 0, 0, 0);
+    n8nResetTime.setHours(0, 0, 0, 0);
+    
+    // Get all jobs for this user
+    const allJobs = await storage.getJobs(userId);
+    
+    // Filter n8n jobs within the current period
+    // This includes all jobs from the period start (including test data) going forward
+    const n8nJobs = allJobs.filter(job => {
+      if (!job.source) return false;
+      
+      // Check if source contains "n8n" (case-insensitive)
+      // Sources can be: "n8n", "n8n (Indeed)", "n8n (LinkedIn)", etc.
+      const hasN8nSource = job.source.toLowerCase().includes("n8n");
+      if (!hasN8nSource) return false;
+      
+      // Check if job is within the current period
+      // Include all jobs from period start (inclusive) to reset time (exclusive)
+      const jobDate = new Date(job.createdAt);
+      jobDate.setHours(0, 0, 0, 0); // Normalize to start of day for comparison
+      const isInPeriod = jobDate.getTime() >= n8nPeriodStart.getTime() && 
+                         jobDate.getTime() < n8nResetTime.getTime();
+      
+      return isInPeriod;
+    });
+    
+    // Count all n8n jobs in the period (includes test data if within period)
+    const n8nMonthlyCount = n8nJobs.length;
+    
+    // Calculate reset time (12:00 AM tomorrow / midnight)
+    const resetTime = new Date();
+    resetTime.setDate(resetTime.getDate() + 1);
+    resetTime.setHours(0, 0, 0, 0);
+    resetTime.setMinutes(0);
+    resetTime.setSeconds(0);
+    resetTime.setMilliseconds(0);
+    
+    // Calculate usage for each provider
+    // Calculate usage percentages with precision (for display) and rounded (for badge)
+    const perplexityPercentage = Math.min(100, (perplexityLogs.length / PERPLEXITY_DAILY_LIMIT) * 100);
+    const geminiPercentage = Math.min(100, (geminiLogs.length / GEMINI_DAILY_LIMIT) * 100);
+    const jsearchPercentage = Math.min(100, (jsearchMonthlyCount / JSEARCH_MONTHLY_LIMIT) * 100);
+    const n8nPercentage = Math.min(100, (n8nMonthlyCount / N8N_MONTHLY_LIMIT) * 100);
+    
+    const perplexityUsage: ProviderUsage = {
+      dailyCount: perplexityLogs.length,
+      dailyLimit: PERPLEXITY_DAILY_LIMIT,
+      usagePercentage: Math.round(perplexityPercentage), // Rounded for badge display
+      minuteCount: perplexityRecent.length,
+      minuteLimit: PERPLEXITY_MINUTE_LIMIT,
+    };
+    
+    const geminiUsage: ProviderUsage = {
+      dailyCount: geminiLogs.length,
+      dailyLimit: GEMINI_DAILY_LIMIT,
+      usagePercentage: Math.round(geminiPercentage), // Rounded for badge display
+      minuteCount: geminiRecent.length,
+      minuteLimit: GEMINI_MINUTE_LIMIT,
+    };
+    
+    const jsearchUsage: JSearchUsage = {
+      monthlyCount: jsearchMonthlyCount,
+      monthlyLimit: JSEARCH_MONTHLY_LIMIT,
+      usagePercentage: Math.round(jsearchPercentage), // Rounded for badge display
+      hourlyCount: jsearchHourlyCount,
+      hourlyLimit: JSEARCH_HOURLY_LIMIT,
+      resetTime: jsearchResetTime, // Resets on 6th of next month
+    };
+    
+    const n8nUsage = {
+      monthlyCount: n8nMonthlyCount,
+      monthlyLimit: N8N_MONTHLY_LIMIT,
+      usagePercentage: Math.round(n8nPercentage), // Rounded for badge display
+      resetTime: n8nResetTime,
+    };
+    
+    // Overall usage (defaults to Perplexity for backward compatibility)
+    const overallDailyCount = perplexityLogs.length;
+    const overallUsagePercentage = perplexityUsage.usagePercentage;
     
     return {
-      dailyCount,
+      dailyCount: overallDailyCount,
       dailyLimit: PERPLEXITY_DAILY_LIMIT,
-      usagePercentage,
+      usagePercentage: overallUsagePercentage,
       resetTime,
-      minuteCount,
+      minuteCount: perplexityRecent.length,
       minuteLimit: PERPLEXITY_MINUTE_LIMIT,
+      providers: {
+        perplexity: perplexityUsage,
+        gemini: geminiUsage,
+        jsearch: jsearchUsage,
+        n8n: n8nUsage,
+      },
     };
   } catch (error) {
     console.error("Error calculating API usage:", error);
     // Return default values on error
+    const defaultProviderUsage: ProviderUsage = {
+      dailyCount: 0,
+      dailyLimit: 200,
+      usagePercentage: 0,
+      minuteCount: 0,
+      minuteLimit: 5,
+    };
     return {
       dailyCount: 0,
       dailyLimit: PERPLEXITY_DAILY_LIMIT,
@@ -84,17 +313,45 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       resetTime: new Date(),
       minuteCount: 0,
       minuteLimit: PERPLEXITY_MINUTE_LIMIT,
+      providers: {
+        perplexity: defaultProviderUsage,
+        gemini: defaultProviderUsage,
+        jsearch: {
+          monthlyCount: 0,
+          monthlyLimit: JSEARCH_MONTHLY_LIMIT,
+          usagePercentage: 0,
+          hourlyCount: 0,
+          hourlyLimit: JSEARCH_HOURLY_LIMIT,
+          resetTime: new Date(),
+        },
+        n8n: {
+          monthlyCount: 0,
+          monthlyLimit: N8N_MONTHLY_LIMIT,
+          usagePercentage: 0,
+          resetTime: new Date(),
+        },
+      },
     };
   }
 }
 
 /**
- * Log an API call (call this whenever Perplexity API is used)
+ * Log an API call (call this whenever any API is used)
+ * @param context - Description of the API call
+ * @param provider - Provider name: "perplexity", "gemini", "jsearch", or "n8n"
+ * @param metadata - Additional metadata
+ * @param userId - User ID
  */
-export async function logAPICall(context: string, metadata?: Record<string, any>, userId?: string): Promise<void> {
+export async function logAPICall(
+  context: string, 
+  provider: "perplexity" | "gemini" | "jsearch" | "n8n",
+  metadata?: Record<string, any>, 
+  userId?: string
+): Promise<void> {
   await activityLogger.info(`API call: ${context}`, {
     ...metadata,
     apiCall: true,
+    provider,
     timestamp: new Date().toISOString(),
   }, userId);
 }

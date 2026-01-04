@@ -19,12 +19,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2, ChevronLeft, ChevronRight, Trash2, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis } from "@/lib/api";
+import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis, getSettings } from "@/lib/api";
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function ATSAnalyzer() {
   const { toast } = useToast();
@@ -35,6 +36,20 @@ export default function ATSAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
+  const [aiProvider, setAiProvider] = useState<"auto" | "perplexity" | "gemini">("auto");
+  
+  // Get user's default AI provider preference from settings
+  const { data: settings = [] } = useQuery({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+  });
+  
+  useEffect(() => {
+    const providerSetting = settings.find(s => s.key === "ai_provider_preference");
+    if (providerSetting?.value && ["auto", "perplexity", "gemini"].includes(providerSetting.value)) {
+      setAiProvider(providerSetting.value as "auto" | "perplexity" | "gemini");
+    }
+  }, [settings]);
   
   // Get jobId from URL query params
   const urlParams = new URLSearchParams(window.location.search);
@@ -211,6 +226,7 @@ export default function ATSAnalyzer() {
       jobCompany,
       jobDescription,
       jobId: jobId || undefined,
+      aiProvider: aiProvider === "auto" ? undefined : aiProvider,
     });
   };
 
@@ -298,6 +314,30 @@ export default function ATSAnalyzer() {
                     value={jobDescription}
                     onChange={(e) => setJobDescription(e.target.value)}
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-primary" />
+                    AI Provider
+                  </Label>
+                  <Select value={aiProvider} onValueChange={(value) => setAiProvider(value as "auto" | "perplexity" | "gemini")}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select AI provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto (Use Default Settings)</SelectItem>
+                      <SelectItem value="perplexity">Perplexity</SelectItem>
+                      <SelectItem value="gemini">Gemini</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {aiProvider === "auto" 
+                      ? "Uses your default AI provider preference from Settings"
+                      : aiProvider === "perplexity"
+                      ? "Uses Perplexity AI for this analysis"
+                      : "Uses Google Gemini AI for this analysis"}
+                  </p>
                 </div>
 
                 <Button 

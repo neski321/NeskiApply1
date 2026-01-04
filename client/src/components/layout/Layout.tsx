@@ -10,12 +10,14 @@ import { getAPIUsage } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { APIUsageModal } from "@/components/APIUsageModal";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [showAPIUsageModal, setShowAPIUsageModal] = useState(false);
 
   // Fetch API usage
   const { data: apiUsage } = useQuery({
@@ -90,7 +92,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
-        <div className="rounded-lg bg-card/50 border border-border p-3 space-y-2">
+        <div 
+          className="rounded-lg bg-card/50 border border-border p-3 space-y-2 cursor-pointer hover:bg-card/70 transition-colors"
+          onClick={() => setShowAPIUsageModal(true)}
+        >
           <div className="flex justify-between text-xs font-mono text-muted-foreground">
             <span>API Usage</span>
             <span>
@@ -98,17 +103,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           <div className="h-1 w-full bg-muted/50 rounded-full overflow-hidden">
-            <div 
-              className={cn(
-                "h-full rounded-full transition-all",
-                apiUsage && apiUsage.usagePercentage >= 90 
-                  ? "bg-red-500" 
-                  : apiUsage && apiUsage.usagePercentage >= 75
-                  ? "bg-amber-500"
-                  : "bg-primary"
-              )}
-              style={{ width: apiUsage ? `${apiUsage.usagePercentage}%` : "0%" }}
-            />
+            {apiUsage ? (() => {
+              // Calculate precise percentage for progress bar (not rounded)
+              // The sidebar shows overall Perplexity usage, but we'll use the precise calculation
+              const precisePercentage = apiUsage.dailyLimit > 0 
+                ? Math.min(100, (apiUsage.dailyCount / apiUsage.dailyLimit) * 100)
+                : 0;
+              
+              // Ensure minimum visibility for small percentages
+              const displayWidth = precisePercentage > 0 && precisePercentage < 1
+                ? Math.max(precisePercentage, 0.5) // At least 0.5% for visibility if usage > 0
+                : Math.max(precisePercentage, 0);
+              
+              return (
+                <div 
+                  className={cn(
+                    "h-full rounded-full transition-all duration-300",
+                    apiUsage.usagePercentage >= 90 
+                      ? "bg-red-500" 
+                      : apiUsage.usagePercentage >= 75
+                      ? "bg-amber-500"
+                      : "bg-primary"
+                  )}
+                  style={{ 
+                    width: `${displayWidth}%`,
+                  }}
+                />
+              );
+            })() : (
+              <div className="h-full rounded-full bg-muted" style={{ width: "0%" }} />
+            )}
           </div>
           <div className="text-[10px] text-muted-foreground">
             {apiUsage ? (
@@ -122,7 +146,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
               "Loading..."
             )}
           </div>
+          <div className="text-[10px] text-primary/70 mt-1">
+            Click to view breakdown →
+          </div>
         </div>
+        
+        <APIUsageModal
+          open={showAPIUsageModal}
+          onOpenChange={setShowAPIUsageModal}
+          apiUsage={apiUsage || null}
+          isLoading={!apiUsage}
+        />
         <div className="mt-4 space-y-2">
           <div className="flex items-center gap-3 px-1">
             <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-background">
