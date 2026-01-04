@@ -525,11 +525,23 @@ export async function registerRoutes(
     try {
       const userId = getUserIdFromRequest(req);
       const id = parseInt(req.params.id);
+      
+      // Get job details before deleting for activity log
+      const job = await storage.getJob(id, userId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
       const deleted = await storage.deleteJob(id, userId);
       
       if (!deleted) {
         return res.status(404).json({ error: "Job not found" });
       }
+      
+      // Log the deletion
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(`Job deleted: "${job.title}" at ${job.company}`, { jobId: id }, userId);
       
       res.status(204).send();
     } catch (error) {

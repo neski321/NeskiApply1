@@ -162,6 +162,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteJob(id: number, userId: string): Promise<boolean> {
+    // Delete the job - this will cascade delete ATS analyses via foreign key constraint
+    // Note: We keep activity logs that reference this job for historical purposes
     const result = await db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     return result.rowCount ? result.rowCount > 0 : false;
   }
