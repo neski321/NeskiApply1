@@ -251,6 +251,27 @@ export async function getATSAnalysisByJobId(jobId: number): Promise<ATSAnalysis>
   return response.json();
 }
 
+export async function getAllAnalysesByJobId(jobId: number): Promise<ATSAnalysis[]> {
+  const response = await fetch(`/api/ats/analyses/job/${jobId}/all`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to fetch analyses");
+  }
+  return response.json();
+}
+
+export async function deleteATSAnalysis(id: number): Promise<void> {
+  const response = await fetch(`/api/ats/analyses/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to delete analysis" }));
+    throw new Error(error.error || "Failed to delete analysis");
+  }
+}
+
 // ============ SETTINGS API ============
 
 export async function getSettings(): Promise<Setting[]> {

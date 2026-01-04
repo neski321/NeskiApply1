@@ -338,12 +338,16 @@ export default function Resumes() {
                 
                 <div className="space-y-2">
                   <Label>Experience Summary *</Label>
-                  <Input
+                  <Textarea
                     required
-                    placeholder="e.g., 2 years backend development"
+                    placeholder="Paste your experience section from your resume here (e.g., job titles, companies, dates, responsibilities)..."
                     value={formData.experience}
                     onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
+                    className="min-h-[100px] font-mono text-xs"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    You can copy-paste your entire experience section from your resume. This helps the AI better match your background to job requirements.
+                  </p>
                 </div>
                 
                 <div className="space-y-2">
@@ -502,17 +506,21 @@ export default function Resumes() {
           
           {viewingResume && (
             <div className="space-y-6 mt-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">File Name</Label>
                   <p className="text-sm text-muted-foreground">{viewingResume.fileName}</p>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-semibold">Experience</Label>
-                  <p className="text-sm text-muted-foreground">{viewingResume.experience}</p>
+                  <div className="p-3 bg-muted/30 rounded-md border border-border/50 max-h-[300px] overflow-y-auto">
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                      {viewingResume.experience}
+                    </p>
+                  </div>
                 </div>
                 {viewingResume.education && (
-                  <div className="space-y-2 col-span-2">
+                  <div className="space-y-2 col-span-1 md:col-span-2">
                     <Label className="text-sm font-semibold">Education</Label>
                     <p className="text-sm text-muted-foreground">{viewingResume.education}</p>
                   </div>

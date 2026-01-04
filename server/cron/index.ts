@@ -5,6 +5,8 @@ import { activityLogger } from "../logger";
 
 let cronJob: ScheduledTask | null = null;
 let reminderCronJob: ScheduledTask | null = null;
+// Track last reminder sent date per user to prevent duplicates
+const lastReminderSent: Map<string, string> = new Map(); // userId -> date string (YYYY-MM-DD)
 
 /**
  * Execute daily job scraping for a specific user
@@ -183,7 +185,7 @@ export async function setupDailyScraping(): Promise<void> {
 /**
  * Execute reminder check for a specific user
  */
-export async function executeReminderCheck(userId: string): Promise<{
+export async function executeReminderCheck(userId: string, force: boolean = false): Promise<{
   success: boolean;
   message: string;
   sent?: boolean;
@@ -197,6 +199,20 @@ export async function executeReminderCheck(userId: string): Promise<{
         message: "Reminders are disabled",
         sent: false,
       };
+    }
+
+    // Check if we already sent a reminder today (unless forced)
+    if (!force) {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const lastSent = lastReminderSent.get(userId);
+      if (lastSent === today) {
+        console.log(`[Cron] Reminder already sent today for user ${userId}, skipping`);
+        return {
+          success: true,
+          message: "Reminder already sent today",
+          sent: false,
+        };
+      }
     }
 
     // Get all unapplied jobs
@@ -226,6 +242,10 @@ export async function executeReminderCheck(userId: string): Promise<{
     const sent = await sendApplyReminder(userId, unappliedJobs.length, highPriorityJobs.length);
     
     if (sent) {
+      // Track that we sent a reminder today
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      lastReminderSent.set(userId, today);
+      
       await activityLogger.info(
         `Reminder sent: ${unappliedJobs.length} unapplied jobs (${highPriorityJobs.length} high priority)`,
         { unappliedJobs: unappliedJobs.length, highPriorityJobs: highPriorityJobs.length },
@@ -286,11 +306,11 @@ export async function setupReminderCron(): Promise<void> {
           const timezone = timezoneSetting?.value || "America/Toronto";
 
           // Check if it's time to send reminder for this user
-          if (shouldRunNow(reminderTime, timezone)) {
+          if (shouldRunNow(reminderTime, timezone, true)) {
             console.log(
               `[Cron] Sending reminder for user ${user.id} (${user.username}) at ${reminderTime} ${timezone}`
             );
-            await executeReminderCheck(user.id);
+            await executeReminderCheck(user.id, false);
           }
         } catch (error) {
           console.error(`[Cron] Error processing reminder for user ${user.id}:`, error);
@@ -323,8 +343,9 @@ export async function rescheduleDailyScraping(): Promise<void> {
 
 /**
  * Check if a cron job should run now based on schedule time and timezone
+ * For reminders, we want to be more precise to avoid multiple sends
  */
-function shouldRunNow(scheduleTime: string, timezone: string): boolean {
+function shouldRunNow(scheduleTime: string, timezone: string, isReminder: boolean = false): boolean {
   try {
     const [scheduleHour, scheduleMinute] = scheduleTime.split(":").map(Number);
 
@@ -343,11 +364,20 @@ function shouldRunNow(scheduleTime: string, timezone: string): boolean {
 
     const [currentHour, currentMinute] = userTimeString.split(":").map(Number);
 
-    // Run if it's the scheduled hour and minute (within a 15-minute window since we check every 15 minutes)
-    const timeDiff = Math.abs(
-      currentHour * 60 + currentMinute - (scheduleHour * 60 + scheduleMinute)
-    );
-    return timeDiff <= 15; // Within 15 minutes of scheduled time
+    if (isReminder) {
+      // For reminders, only trigger at the exact scheduled time (within 5 minutes tolerance)
+      // This prevents multiple reminders in the same 15-minute window
+      const timeDiff = Math.abs(
+        currentHour * 60 + currentMinute - (scheduleHour * 60 + scheduleMinute)
+      );
+      return timeDiff <= 5; // Within 5 minutes of scheduled time (more precise)
+    } else {
+      // For scraping, use the original 15-minute window
+      const timeDiff = Math.abs(
+        currentHour * 60 + currentMinute - (scheduleHour * 60 + scheduleMinute)
+      );
+      return timeDiff <= 15; // Within 15 minutes of scheduled time
+    }
   } catch (error) {
     console.error("[Cron] Error checking schedule time:", error);
     return false;
