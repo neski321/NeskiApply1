@@ -2303,11 +2303,16 @@ export async function registerRoutes(
       // Safely parse jobId from query params
       let jobId: number | undefined = undefined;
       if (req.query.jobId) {
-        const parsed = parseIdParam(req.query.jobId as string);
-        if (parsed) {
-          jobId = parsed;
-        } else {
-          return res.status(400).json({ error: "Invalid job ID in query parameter" });
+        const jobIdParam = req.query.jobId as string;
+        // Check if it's a valid string that can be parsed
+        if (jobIdParam && jobIdParam !== "undefined" && jobIdParam !== "null" && jobIdParam.trim() !== "") {
+          const parsed = parseIdParam(jobIdParam);
+          if (parsed) {
+            jobId = parsed;
+          } else {
+            // Invalid format, but don't fail - just ignore the parameter
+            console.warn(`[Optimized Resumes] Invalid jobId query parameter: "${jobIdParam}"`);
+          }
         }
       }
       const optimizedResumes = await storage.getOptimizedResumes(userId, jobId);
@@ -2395,6 +2400,12 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid optimized resume ID" });
       }
       
+      // Get format from query parameter (default to 'pdf')
+      const format = (req.query.format as string) || "pdf";
+      if (format !== "pdf" && format !== "docx") {
+        return res.status(400).json({ error: "Invalid format. Must be 'pdf' or 'docx'" });
+      }
+      
       // Get the optimized resume
       const optimizedResume = await storage.getOptimizedResume(id, userId);
       if (!optimizedResume) {
@@ -2411,31 +2422,50 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Related job or resume not found" });
       }
       
-      // Generate PDF
-      const { generateOptimizedResumePDF } = await import("./pdf-generator");
-      const pdfStream = generateOptimizedResumePDF(
-        {
-          professionalSummary: optimizedResume.professionalSummary,
-          technicalSkills: optimizedResume.technicalSkills,
-          education: optimizedResume.education,
-          relevantExperience: optimizedResume.relevantExperience,
-          projects: optimizedResume.projects,
-        },
-        {
-          jobTitle: job.title,
-          jobCompany: job.company,
-          originalResumeName: originalResume.name,
-          optimizedDate: optimizedResume.createdAt,
-        }
-      );
+      const resumeData = {
+        professionalSummary: optimizedResume.professionalSummary,
+        technicalSkills: optimizedResume.technicalSkills,
+        education: optimizedResume.education || "",
+        relevantExperience: optimizedResume.relevantExperience,
+        projects: optimizedResume.projects,
+      };
       
-      // Set response headers
-      const filename = `optimized-resume-${job.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${Date.now()}.pdf`;
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      const metadata = {
+        jobTitle: job.title,
+        jobCompany: job.company,
+        originalResumeName: originalResume.name,
+        optimizedDate: optimizedResume.createdAt,
+      };
       
-      // Pipe the PDF to the response
-      pdfStream.pipe(res);
+      const sanitizedTitle = job.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const timestamp = Date.now();
+      
+      if (format === "docx") {
+        // Generate Word document
+        const { generateOptimizedResumeWord } = await import("./word-generator");
+        const wordBuffer = await generateOptimizedResumeWord(resumeData, metadata);
+        
+        // Set response headers
+        const filename = `optimized-resume-${sanitizedTitle}-${timestamp}.docx`;
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.setHeader("Content-Length", wordBuffer.length.toString());
+        
+        // Send the buffer
+        res.send(wordBuffer);
+      } else {
+        // Generate PDF
+        const { generateOptimizedResumePDF } = await import("./pdf-generator");
+        const pdfStream = generateOptimizedResumePDF(resumeData, metadata);
+        
+        // Set response headers
+        const filename = `optimized-resume-${sanitizedTitle}-${timestamp}.pdf`;
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        
+        // Pipe the PDF to the response
+        pdfStream.pipe(res);
+      }
     } catch (error) {
       console.error("Error downloading optimized resume:", error);
       res.status(500).json({ error: "Failed to download optimized resume" });
