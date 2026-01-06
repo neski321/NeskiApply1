@@ -27,22 +27,50 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Resume } from "@shared/schema";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Brain, ChevronDown, ChevronUp } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useLocation } from "wouter";
 
 export default function Resumes() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [location, setLocation] = useLocation();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingResume, setEditingResume] = useState<Resume | null>(null);
   const [deletingResume, setDeletingResume] = useState<Resume | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState("resumes");
+
+  // Check URL params for tab and highlightId
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get("tab");
+    const highlightParam = params.get("highlightId");
+    
+    if (tabParam === "optimized") {
+      setActiveTab("optimized");
+    }
+    
+    if (highlightParam) {
+      const id = parseInt(highlightParam, 10);
+      if (!isNaN(id)) {
+        setHighlightId(id);
+        // Clear URL params after reading them
+        const newParams = new URLSearchParams(params);
+        newParams.delete("tab");
+        newParams.delete("highlightId");
+        const newSearch = newParams.toString();
+        setLocation(`/resumes${newSearch ? `?${newSearch}` : ""}`, { replace: true });
+      }
+    }
+  }, [location, setLocation]);
   const [formData, setFormData] = useState({
     name: "",
     fileName: "",
@@ -417,7 +445,7 @@ export default function Resumes() {
           </Dialog>
         </div>
 
-        <Tabs defaultValue="resumes" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList>
             <TabsTrigger value="resumes">My Resumes</TabsTrigger>
             <TabsTrigger value="optimized">Optimized Resumes</TabsTrigger>
@@ -531,6 +559,7 @@ export default function Resumes() {
                     optimized={optimized}
                     onDelete={() => deleteOptimizedMutation.mutate(optimized.id)}
                     isDeleting={deleteOptimizedMutation.isPending}
+                    shouldHighlight={highlightId === optimized.id}
                   />
                 ))}
               </div>
@@ -644,17 +673,53 @@ export default function Resumes() {
 function OptimizedResumeCard({ 
   optimized, 
   onDelete, 
-  isDeleting 
+  isDeleting,
+  shouldHighlight = false
 }: { 
   optimized: SavedOptimizedResume; 
   onDelete: () => void;
   isDeleting: boolean;
+  shouldHighlight?: boolean;
 }) {
   const [showModal, setShowModal] = useState(false);
+  const [isFlashing, setIsFlashing] = useState(false);
+  const flashCountRef = useRef(0);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Handle flashing effect - 5 flashes
+  useEffect(() => {
+    if (shouldHighlight && flashCountRef.current === 0) {
+      // Scroll into view when highlighting starts
+      setTimeout(() => {
+        cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+
+      // Start flashing
+      const flashInterval = setInterval(() => {
+        setIsFlashing(prev => {
+          if (!prev) {
+            flashCountRef.current += 1;
+            if (flashCountRef.current >= 5) {
+              clearInterval(flashInterval);
+              return false;
+            }
+          }
+          return !prev;
+        });
+      }, 300); // Flash every 300ms
+
+      return () => clearInterval(flashInterval);
+    }
+  }, [shouldHighlight]);
 
   return (
     <>
-      <Card className="bg-card/50 border-border/50 hover:border-primary/50 transition-colors group">
+      <Card 
+        ref={cardRef}
+        className={`bg-card/50 border-border/50 hover:border-primary/50 transition-all group ${
+          isFlashing ? "ring-4 ring-primary ring-offset-2 shadow-lg scale-[1.02]" : ""
+        }`}
+      >
         <CardHeader className="flex flex-row items-start justify-between pb-2">
           <div className="p-2 bg-primary/10 rounded-lg text-primary">
             <Sparkles className="h-6 w-6" />

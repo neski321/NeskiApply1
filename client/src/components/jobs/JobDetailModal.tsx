@@ -24,10 +24,11 @@ import {
   Loader2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateJob, deleteJob, optimizeResumeForJob, type OptimizeResumeResponse } from "@/lib/api";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { updateJob, deleteJob, optimizeResumeForJob, getOptimizedResumes, type OptimizeResumeResponse } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { OptimizedResumeModal } from "./OptimizedResumeModal";
 import { useOptimization } from "@/contexts/OptimizationContext";
 import {
@@ -51,11 +52,28 @@ interface JobDetailModalProps {
 export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [optimizationResult, setOptimizationResult] = useState<OptimizeResumeResponse | null>(null);
   const [showOptimizedModal, setShowOptimizedModal] = useState(false);
   const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
+
+  // Fetch optimized resume for this job to get its ID
+  const { data: optimizedResumes = [] } = useQuery({
+    queryKey: ["optimizedResumes", job?.id],
+    queryFn: () => getOptimizedResumes(job?.id),
+    enabled: !!job?.id && (job as any).hasOptimizedResume,
+  });
+
+  const optimizedResumeId = optimizedResumes.length > 0 ? optimizedResumes[0].id : null;
+
+  const handleNavigateToOptimizedResumes = () => {
+    if (optimizedResumeId) {
+      setLocation(`/resumes?tab=optimized&highlightId=${optimizedResumeId}`);
+      onOpenChange(false);
+    }
+  };
 
   const updateJobMutation = useMutation({
     mutationFn: (data: Partial<Job>) => updateJob(job!.id, data),
@@ -432,7 +450,14 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
               <div className="flex items-start gap-2 p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                 <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
                 <p className="text-xs sm:text-sm text-purple-900 dark:text-purple-200">
-                  This job already has an optimized resume. View it in the <strong>Resumes → Optimized Resumes</strong> tab.
+                  This job already has an optimized resume. View it in the{" "}
+                  <button
+                    onClick={handleNavigateToOptimizedResumes}
+                    className="font-semibold underline hover:text-purple-700 dark:hover:text-purple-300 transition-colors cursor-pointer"
+                  >
+                    Resumes → Optimized Resumes
+                  </button>{" "}
+                  tab.
                 </p>
               </div>
             )}
