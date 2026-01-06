@@ -3,6 +3,8 @@ import "dotenv/config";
 
 import express, { type Request, Response, NextFunction } from "express";
 import passport from "passport";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -21,6 +23,67 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Security: Helmet.js for security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"], // Allow inline styles for React
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Allow inline scripts for React/Vite
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"], // Disable iframes by default (change if needed)
+      },
+    },
+    crossOriginEmbedderPolicy: false, // Disable for Railway compatibility
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resources
+  })
+);
+
+// Security: Rate limiting for API endpoints
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: "Too many requests from this IP, please try again later.",
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skip: (req) => {
+    // Skip rate limiting for n8n ingestion endpoint (has its own authentication)
+    return req.path === "/api/jobs/ingest";
+  },
+});
+
+// Apply rate limiting to all API routes (except n8n ingest)
+app.use("/api", apiLimiter);
+
+// Separate, more lenient rate limiter for n8n ingestion endpoint
+// n8n has its own authentication via header, so we allow more requests
+const n8nIngestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500, // Allow up to 500 requests per 15 minutes (n8n may send batches)
+  message: "Too many ingestion requests, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply lenient rate limiting to n8n ingestion endpoint
+app.use("/api/jobs/ingest", n8nIngestLimiter);
+
+// Stricter rate limiting for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login attempts per windowMs
+  message: "Too many login attempts, please try again later.",
+  skipSuccessfulRequests: true, // Don't count successful requests
+});
+
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
 
 app.use(
   express.json({

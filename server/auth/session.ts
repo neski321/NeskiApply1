@@ -65,9 +65,27 @@ export function configureSession() {
     }
   })();
   
+  // Security: Require SESSION_SECRET in production
+  const sessionSecret = process.env.SESSION_SECRET;
+  
+  if (isProduction && !sessionSecret) {
+    throw new Error(
+      "SESSION_SECRET environment variable is required in production. " +
+      "Please set it in your Railway environment variables. " +
+      "Generate a secure random string (e.g., using: openssl rand -hex 32)"
+    );
+  }
+  
+  if (!sessionSecret) {
+    console.warn(
+      "⚠️  WARNING: SESSION_SECRET not set. Using insecure default. " +
+      "This should only be used in development. Set SESSION_SECRET in production!"
+    );
+  }
+
   return session({
     store: sessionStore,
-    secret: process.env.SESSION_SECRET || "your-secret-key-change-in-production",
+    secret: sessionSecret || "your-secret-key-change-in-production",
     resave: false,
     saveUninitialized: false,
     cookie: {
