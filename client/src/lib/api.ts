@@ -347,10 +347,54 @@ export async function triggerCronJob(): Promise<{ success: boolean; message: str
 export async function matchJobs(): Promise<{ message: string }> {
   const response = await fetch("/api/jobs/match", {
     method: "POST",
+    credentials: "include",
   });
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || "Failed to match jobs");
+  }
+  return response.json();
+}
+
+export async function matchZeroScoreJobs(): Promise<{ message: string }> {
+  const response = await fetch("/api/jobs/match-zero-score", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to match zero-score jobs");
+  }
+  return response.json();
+}
+
+export async function retryMatchJob(jobId: number): Promise<{ success: boolean; message: string; job?: Job }> {
+  const response = await fetch(`/api/jobs/${jobId}/match`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || error.message || "Failed to retry job matching");
+  }
+  return response.json();
+}
+
+export async function getUnscannedJobsCount(): Promise<{ count: number; jobs: Array<{ id: number; title: string; company: string; createdAt: Date }> }> {
+  const response = await fetch("/api/jobs/unscanned-count", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to get unscanned jobs count");
+  return response.json();
+}
+
+export async function getZeroScoreJobsCount(): Promise<{ count: number; jobs: Array<{ id: number; title: string; company: string; createdAt: Date }> }> {
+  const response = await fetch("/api/jobs/zero-score-count", {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to get zero-score jobs count" }));
+    throw new Error(error.error || "Failed to get zero-score jobs count");
   }
   return response.json();
 }

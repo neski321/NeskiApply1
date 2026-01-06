@@ -206,41 +206,57 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount || 0;
   }
 
+  /**
+   * Normalize text for comparison (lowercase, trim, remove extra spaces)
+   */
+  private normalizeText(text: string): string {
+    return text.toLowerCase().trim().replace(/\s+/g, " ");
+  }
+
   async upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }> {
-    // If externalId is provided, use it for duplicate detection
+    // Helper to normalize title and company for comparison
+    const normalizedTitle = this.normalizeText(job.title);
+    const normalizedCompany = this.normalizeText(job.company);
+
+    // Priority 1: If externalId is provided, use it for duplicate detection
     if (job.externalId) {
       const [existing] = await db.select().from(jobs).where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)));
       
       if (existing) {
+        // Preserve original postedDate and createdAt when updating
+        const updateData = { ...job };
+        if (existing.postedDate) {
+          updateData.postedDate = existing.postedDate; // Keep original date
+        }
         const [updated] = await db
           .update(jobs)
-          .set(job)
+          .set(updateData)
           .where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)))
           .returning();
         return { job: updated, wasInserted: false };
       }
-
-      const newJob = await this.createJob(job, userId);
-      return { job: newJob, wasInserted: true };
     }
 
-    // Fallback: If no externalId, check for duplicate by URL (if URL is provided)
-    // This helps prevent duplicates when n8n doesn't provide a consistent ID
+    // Priority 2: Check for duplicate by URL + title + company (if URL is provided)
     if (job.url) {
       const [existingByUrl] = await db.select().from(jobs).where(
         and(
           eq(jobs.url, job.url),
           eq(jobs.userId, userId),
-          eq(jobs.title, job.title), // Also match title to avoid false positives
-          eq(jobs.company, job.company) // And company
+          eq(jobs.title, job.title),
+          eq(jobs.company, job.company)
         )
       );
       
       if (existingByUrl) {
-        // Update existing job with new data
+        // Preserve original postedDate and createdAt when updating
+        const updateData = { ...job };
+        if (existingByUrl.postedDate) {
+          updateData.postedDate = existingByUrl.postedDate; // Keep original date
+        }
         const [updated] = await db
           .update(jobs)
-          .set(job)
+          .set(updateData)
           .where(
             and(
               eq(jobs.url, job.url),
@@ -252,6 +268,31 @@ export class DatabaseStorage implements IStorage {
           .returning();
         return { job: updated, wasInserted: false };
       }
+    }
+
+    // Priority 3: Check for duplicate by normalized title + company (catches same job with different IDs/URLs)
+    // This prevents duplicates when the same job is scraped multiple times with different external IDs
+    const allUserJobs = await db.select().from(jobs).where(eq(jobs.userId, userId));
+    const duplicate = allUserJobs.find(existing => {
+      const existingNormalizedTitle = this.normalizeText(existing.title);
+      const existingNormalizedCompany = this.normalizeText(existing.company);
+      return existingNormalizedTitle === normalizedTitle && existingNormalizedCompany === normalizedCompany;
+    });
+
+    if (duplicate) {
+      console.log(`[Duplicate Detection] Found duplicate job: "${job.title}" at "${job.company}" (existing ID: ${duplicate.id})`);
+      // Preserve original postedDate, createdAt, and other original data when updating
+      const updateData = { ...job };
+      if (duplicate.postedDate) {
+        updateData.postedDate = duplicate.postedDate; // Keep original date
+      }
+      // Don't update createdAt - keep the original creation time
+      const [updated] = await db
+        .update(jobs)
+        .set(updateData)
+        .where(and(eq(jobs.id, duplicate.id), eq(jobs.userId, userId)))
+        .returning();
+      return { job: updated, wasInserted: false };
     }
 
     // No duplicate found, create new job

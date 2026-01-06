@@ -522,11 +522,59 @@ export async function registerRoutes(
     }
   });
 
+  // Get count of unscanned jobs (jobs without match scores) - MUST be before /api/jobs/:id
+  app.get("/api/jobs/unscanned-count", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const allJobs = await storage.getJobs(userId);
+      const unscannedJobs = allJobs.filter(j => j.matchScore === null || j.matchScore === undefined);
+      
+      res.json({
+        count: unscannedJobs.length,
+        jobs: unscannedJobs.map(j => ({ id: j.id, title: j.title, company: j.company, createdAt: j.createdAt }))
+      });
+    } catch (error) {
+      console.error("Error getting unscanned jobs count:", error);
+      res.status(500).json({ error: "Failed to get unscanned jobs count" });
+    }
+  });
+
+  // Get count of zero-score jobs (jobs with matchScore === 0) - MUST be before /api/jobs/:id
+  app.get("/api/jobs/zero-score-count", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const allJobs = await storage.getJobs(userId);
+      // Filter for jobs with matchScore exactly equal to 0 (not null/undefined)
+      const zeroScoreJobs = allJobs.filter(j => j.matchScore !== null && j.matchScore !== undefined && j.matchScore === 0);
+      
+      console.log(`[Zero Score Count] Total jobs: ${allJobs.length}, Zero-score jobs: ${zeroScoreJobs.length}`);
+      
+      res.json({
+        count: zeroScoreJobs.length,
+        jobs: zeroScoreJobs.map(j => ({ id: j.id, title: j.title, company: j.company, createdAt: j.createdAt }))
+      });
+    } catch (error) {
+      console.error("Error getting zero-score jobs count:", error);
+      res.status(500).json({ error: "Failed to get zero-score jobs count" });
+    }
+  });
+
   // Get single job
   app.get("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      
+      // Validate ID parameter
+      if (!req.params.id) {
+        return res.status(400).json({ error: "Job ID is required" });
+      }
+      
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        console.warn(`[Get Job] Invalid job ID provided: "${req.params.id}"`);
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+      
       const job = await storage.getJob(id, userId);
       
       if (!job) {
@@ -544,6 +592,11 @@ export async function registerRoutes(
       res.json(jobWithOptimizedInfo);
     } catch (error) {
       console.error("Error fetching job:", error);
+      // Check if it's the NaN error and provide a better message
+      if (error instanceof Error && error.message.includes("NaN")) {
+        console.error(`[Get Job] NaN error detected - req.params.id was: "${req.params?.id}"`);
+        return res.status(400).json({ error: "Invalid job ID format" });
+      }
       res.status(500).json({ error: "Failed to fetch job" });
     }
   });
@@ -568,7 +621,10 @@ export async function registerRoutes(
   app.patch("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
       const partialSchema = insertJobSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
@@ -652,7 +708,10 @@ export async function registerRoutes(
   app.delete("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
       
       // Get job details before deleting for activity log
       const job = await storage.getJob(id, userId);
@@ -887,7 +946,10 @@ export async function registerRoutes(
   app.get("/api/ats/analyses/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid analysis ID" });
+      }
       const analysis = await storage.getATSAnalysis(id, userId);
       
       if (!analysis) {
@@ -905,7 +967,10 @@ export async function registerRoutes(
   app.get("/api/ats/analyses/job/:jobId", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const jobId = parseInt(req.params.jobId);
+      const jobId = parseIdParam(req.params.jobId);
+      if (!jobId) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
       const analysis = await storage.getATSAnalysisByJobId(jobId, userId);
       
       if (!analysis) {
@@ -923,9 +988,8 @@ export async function registerRoutes(
   app.get("/api/ats/analyses/job/:jobId/all", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const jobId = parseInt(req.params.jobId);
-      
-      if (isNaN(jobId)) {
+      const jobId = parseIdParam(req.params.jobId);
+      if (!jobId) {
         return res.status(400).json({ error: "Invalid job ID" });
       }
       
@@ -947,7 +1011,10 @@ export async function registerRoutes(
   app.delete("/api/ats/analyses/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid analysis ID" });
+      }
       
       // Get analysis details before deleting for activity log
       const analysis = await storage.getATSAnalysis(id, userId);
@@ -1120,6 +1187,7 @@ export async function registerRoutes(
       let inserted = 0;
       let updated = 0;
       let skipped = 0;
+      const jobsToMatch: Array<{ id: number; title: string }> = []; // Queue jobs for sequential matching
       
       // Helper function to infer source from URL
       // Returns format: "n8n (Indeed)" or "n8n (LinkedIn)" etc. to indicate it came via n8n
@@ -1215,25 +1283,82 @@ export async function registerRoutes(
           // Track inserts vs updates properly
           if (wasInserted) {
             inserted++;
+            // Queue job for sequential matching (to avoid rate limits)
+            jobsToMatch.push({ id: savedJob.id, title: savedJob.title });
           } else {
             updated++;
             // Skip auto-matching for updates (job already matched previously)
-            processed++;
-            continue;
           }
-          
-          // Always trigger auto-matching for new jobs only
-          // (matching is idempotent, but we skip it for updates to avoid unnecessary processing)
-          import("./matcher/job-matcher").then(({ matchAndUpdateJob }) => {
-            matchAndUpdateJob(savedJob.id, userId).catch(err => 
-              console.error(`[Ingest] Error auto-matching job ${savedJob.id}:`, err)
-            );
-          });
           
           processed++;
         } catch (error) {
           console.error(`[Ingest] Error processing job:`, error);
           skipped++;
+        }
+      }
+      
+      // Process auto-matching sequentially with delays to avoid rate limits
+      // This prevents Gemini (or other APIs) from being overwhelmed when n8n sends many jobs at once
+      if (jobsToMatch.length > 0) {
+        console.log(`[Ingest] Queueing ${jobsToMatch.length} jobs for sequential auto-matching...`);
+        const { matchAndUpdateJob } = await import("./matcher/job-matcher");
+        const { activityLogger } = await import("./logger");
+        
+        let matchedCount = 0;
+        let failedCount = 0;
+        const failedJobIds: number[] = []; // Track failed job IDs for notification
+        
+        for (const jobToMatch of jobsToMatch) {
+          try {
+            // Add delay between API calls to respect rate limits (2 seconds like batch matching)
+            if (matchedCount > 0 || failedCount > 0) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            
+            const success = await matchAndUpdateJob(jobToMatch.id, userId);
+            if (success) {
+              matchedCount++;
+              console.log(`[Ingest] Successfully auto-matched job ${jobToMatch.id} (${jobToMatch.title})`);
+            } else {
+              failedCount++;
+              failedJobIds.push(jobToMatch.id); // Track failed job
+              console.warn(`[Ingest] Auto-matching failed for job ${jobToMatch.id} (${jobToMatch.title}) - may need manual ATS analysis`);
+              // Log failure to activity log
+              await activityLogger.error(
+                `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion`,
+                { jobId: jobToMatch.id, reason: "AI service returned null or failed" },
+                userId
+              );
+            }
+          } catch (err) {
+            failedCount++;
+            failedJobIds.push(jobToMatch.id); // Track failed job
+            console.error(`[Ingest] Error auto-matching job ${jobToMatch.id} (${jobToMatch.title}):`, err);
+            // Log to activity log for visibility
+            await activityLogger.error(
+              `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion`,
+              { jobId: jobToMatch.id, error: err instanceof Error ? err.message : String(err) },
+              userId
+            );
+          }
+        }
+        
+        console.log(`[Ingest] Auto-matching complete: ${matchedCount} matched, ${failedCount} failed out of ${jobsToMatch.length} jobs`);
+        
+        // Store failed job IDs in activity log metadata for notification system
+        if (failedJobIds.length > 0) {
+          await activityLogger.warning(
+            `n8n ingestion complete: ${failedJobIds.length} job(s) failed ATS scanning`,
+            { 
+              failedJobIds, 
+              failedCount, 
+              matchedCount, 
+              total: jobsToMatch.length,
+              source: "n8n",
+              type: "unscanned_jobs_notification"
+            },
+            userId
+          );
         }
       }
       
@@ -1337,6 +1462,124 @@ export async function registerRoutes(
       res.status(500).json({ 
         error: "Failed to start job matching",
         message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+
+  // Match zero-score jobs
+  app.post("/api/jobs/match-zero-score", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      // Import matcher (dynamic import to avoid loading issues)
+      const { matchAllZeroScoreJobs } = await import("./matcher/job-matcher");
+      
+      // Start matching (don't await - return immediately)
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info("Re-matching zero-score jobs started", undefined, userId);
+      
+      matchAllZeroScoreJobs(userId).then(async (result) => {
+        console.log(`Zero-score job re-matching complete: ${result.matched} matched, ${result.failed} failed out of ${result.total} total`);
+        await activityLogger.success(
+          `Zero-score job re-matching complete: ${result.matched} matched, ${result.failed} failed`,
+          { matched: result.matched, failed: result.failed, total: result.total },
+          userId
+        );
+      }).catch(async (error) => {
+        console.error("Error in background zero-score job matching:", error);
+        await activityLogger.error("Zero-score job re-matching failed", { error: error instanceof Error ? error.message : "Unknown error" }, userId);
+      });
+      
+      // Return immediately
+      res.json({ 
+        message: "Zero-score job re-matching started in background. This may take a while depending on the number of jobs."
+      });
+    } catch (error) {
+      console.error("Error starting zero-score job matching:", error);
+      res.status(500).json({ 
+        error: "Failed to start zero-score job matching",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Retry matching for a specific job
+  app.post("/api/jobs/:id/match", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = parseIdParam(req.params.id);
+      if (!jobId) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      // Verify job exists and belongs to user
+      const job = await storage.getJob(jobId, userId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Import matcher
+      const { matchAndUpdateJob } = await import("./matcher/job-matcher");
+      const { activityLogger } = await import("./logger");
+
+      // Check prerequisites before matching
+      const resumes = await storage.getResumes(userId);
+      if (resumes.length === 0) {
+        return res.status(400).json({ 
+          error: "No resumes found",
+          message: "Please upload at least one resume before matching jobs."
+        });
+      }
+
+      // Check if at least one AI API key is configured
+      const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
+      const geminiKey = await storage.getSetting("gemini_api_key", userId);
+      const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
+      
+      if ((!perplexityKey || !perplexityKey.value) && 
+          (!geminiKey || !geminiKey.value) && 
+          (!openrouterKey || !openrouterKey.value)) {
+        return res.status(400).json({ 
+          error: "No AI API key configured",
+          message: "Please configure at least one AI API key (Perplexity, Gemini, or OpenRouter) in Settings."
+        });
+      }
+
+      // Attempt to match the job
+      const success = await matchAndUpdateJob(jobId, userId);
+      
+      if (success) {
+        await activityLogger.info(
+          `Manually retried matching for job "${job.title}"`,
+          { jobId },
+          userId
+        );
+        // Return updated job
+        const updatedJob = await storage.getJob(jobId, userId);
+        res.json({
+          success: true,
+          message: "Job matched successfully",
+          job: updatedJob
+        });
+      } else {
+        await activityLogger.error(
+          `Failed to match job "${job.title}" on retry`,
+          { jobId, reason: "AI service returned null or failed" },
+          userId
+        );
+        res.status(500).json({
+          success: false,
+          error: "Failed to match job",
+          message: "The AI service did not return a valid response. Please check your API keys and try again."
+        });
+      }
+    } catch (error) {
+      console.error("Error retrying job matching:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({
+        success: false,
+        error: "Failed to retry job matching",
+        message: errorMessage
       });
     }
   });
@@ -1825,11 +2068,15 @@ export async function registerRoutes(
   app.post("/api/resumes/:resumeId/optimize", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const resumeId = parseInt(req.params.resumeId);
+      const resumeId = parseIdParam(req.params.resumeId);
+      if (!resumeId) {
+        return res.status(400).json({ error: "Invalid resume ID" });
+      }
       const { jobId, atsAnalysisId } = req.body;
 
-      if (!jobId || isNaN(jobId)) {
-        return res.status(400).json({ error: "Job ID is required" });
+      const parsedJobId = typeof jobId === "number" ? jobId : (jobId ? parseInt(String(jobId), 10) : null);
+      if (!parsedJobId || isNaN(parsedJobId)) {
+        return res.status(400).json({ error: "Job ID is required and must be a valid number" });
       }
 
       // Get resume
@@ -1839,28 +2086,31 @@ export async function registerRoutes(
       }
 
       // Get job
-      const job = await storage.getJob(parseInt(jobId), userId);
+      const job = await storage.getJob(parsedJobId, userId);
       if (!job) {
         return res.status(404).json({ error: "Job not found" });
       }
 
       // Get ATS analysis if provided, or find the most recent one for this job
       let atsAnalysis = null;
-      if (atsAnalysisId && !isNaN(atsAnalysisId)) {
-        atsAnalysis = await storage.getATSAnalysis(parseInt(atsAnalysisId), userId);
-        if (!atsAnalysis) {
-          return res.status(404).json({ error: "ATS Analysis not found" });
-        }
-        // Verify the analysis is for this resume and job
-        if (atsAnalysis.bestResumeId !== resumeId) {
-          return res.status(400).json({ error: "ATS Analysis is not for the selected resume" });
-        }
-        if (atsAnalysis.jobId && atsAnalysis.jobId !== parseInt(jobId)) {
-          return res.status(400).json({ error: "ATS Analysis is not for the selected job" });
+      if (atsAnalysisId) {
+        const parsedAtsAnalysisId = typeof atsAnalysisId === "number" ? atsAnalysisId : (atsAnalysisId ? parseInt(String(atsAnalysisId), 10) : null);
+        if (parsedAtsAnalysisId && !isNaN(parsedAtsAnalysisId)) {
+          atsAnalysis = await storage.getATSAnalysis(parsedAtsAnalysisId, userId);
+          if (!atsAnalysis) {
+            return res.status(404).json({ error: "ATS Analysis not found" });
+          }
+          // Verify the analysis is for this resume and job
+          if (atsAnalysis.bestResumeId !== resumeId) {
+            return res.status(400).json({ error: "ATS Analysis is not for the selected resume" });
+          }
+          if (atsAnalysis.jobId && atsAnalysis.jobId !== parsedJobId) {
+            return res.status(400).json({ error: "ATS Analysis is not for the selected job" });
+          }
         }
       } else {
         // Try to find the most recent ATS analysis for this job
-        atsAnalysis = await storage.getATSAnalysisByJobId(parseInt(jobId), userId);
+        atsAnalysis = await storage.getATSAnalysisByJobId(parsedJobId, userId);
         // Verify it's for the selected resume
         if (atsAnalysis && atsAnalysis.bestResumeId !== resumeId) {
           atsAnalysis = null; // Don't use it if it's for a different resume
@@ -1915,7 +2165,10 @@ export async function registerRoutes(
   app.post("/api/jobs/:jobId/optimize-resume", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const jobId = parseInt(req.params.jobId);
+      const jobId = parseIdParam(req.params.jobId);
+      if (!jobId) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
 
       // Get job
       const job = await storage.getJob(jobId, userId);
@@ -2047,7 +2300,16 @@ export async function registerRoutes(
   app.get("/api/optimized-resumes", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const jobId = req.query.jobId ? parseInt(req.query.jobId as string) : undefined;
+      // Safely parse jobId from query params
+      let jobId: number | undefined = undefined;
+      if (req.query.jobId) {
+        const parsed = parseIdParam(req.query.jobId as string);
+        if (parsed) {
+          jobId = parsed;
+        } else {
+          return res.status(400).json({ error: "Invalid job ID in query parameter" });
+        }
+      }
       const optimizedResumes = await storage.getOptimizedResumes(userId, jobId);
       
       // Enrich with resume and job information
@@ -2076,7 +2338,10 @@ export async function registerRoutes(
   app.get("/api/optimized-resumes/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid optimized resume ID" });
+      }
       const optimizedResume = await storage.getOptimizedResume(id, userId);
       
       if (!optimizedResume) {
@@ -2104,7 +2369,10 @@ export async function registerRoutes(
   app.delete("/api/optimized-resumes/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid optimized resume ID" });
+      }
       const deleted = await storage.deleteOptimizedResume(id, userId);
       
       if (!deleted) {
@@ -2122,7 +2390,10 @@ export async function registerRoutes(
   app.get("/api/optimized-resumes/:id/download", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid optimized resume ID" });
+      }
       
       // Get the optimized resume
       const optimizedResume = await storage.getOptimizedResume(id, userId);

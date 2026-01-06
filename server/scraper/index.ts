@@ -158,10 +158,25 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
             jobsAdded++;
             
             // Auto-match the job against resumes (in background) - only for new jobs
-            import("../matcher/job-matcher").then(({ matchAndUpdateJob }) => {
-              matchAndUpdateJob(savedJob.id, userId).catch(err => 
-                console.error(`Error auto-matching job ${savedJob.id}:`, err)
-              );
+            // Use async/await pattern to ensure errors are properly caught and logged
+            import("../matcher/job-matcher").then(async ({ matchAndUpdateJob }) => {
+              try {
+                const success = await matchAndUpdateJob(savedJob.id, userId);
+                if (!success) {
+                  console.warn(`[JSearch] Auto-matching failed for job ${savedJob.id} (${savedJob.title}) - may need manual ATS analysis`);
+                } else {
+                  console.log(`[JSearch] Successfully auto-matched job ${savedJob.id} (${savedJob.title})`);
+                }
+              } catch (err) {
+                console.error(`[JSearch] Error auto-matching job ${savedJob.id} (${savedJob.title}):`, err);
+                // Log to activity log for visibility
+                const { activityLogger } = await import("../logger");
+                await activityLogger.error(
+                  `Failed to auto-match job "${savedJob.title}" from JSearch`,
+                  { jobId: savedJob.id, error: err instanceof Error ? err.message : String(err) },
+                  userId
+                );
+              }
             });
           }
           // If wasInserted is false, it means it was a duplicate/update, so we skip it

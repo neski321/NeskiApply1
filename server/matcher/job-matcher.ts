@@ -26,9 +26,12 @@ export async function matchJobAgainstResumes(job: Job, userId: string): Promise<
     // Check if at least one AI API key is configured
     const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
     const geminiKey = await storage.getSetting("gemini_api_key", userId);
+    const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
     
-    if ((!perplexityKey || !perplexityKey.value) && (!geminiKey || !geminiKey.value)) {
-      console.log("Neither Perplexity nor Gemini API key configured, skipping job matching");
+    if ((!perplexityKey || !perplexityKey.value) && 
+        (!geminiKey || !geminiKey.value) && 
+        (!openrouterKey || !openrouterKey.value)) {
+      console.log("No AI API key configured (Perplexity, Gemini, or OpenRouter), skipping job matching");
       return null;
     }
 
@@ -109,12 +112,32 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
   try {
     const job = await storage.getJob(jobId, userId);
     if (!job) {
-      console.error(`Job ${jobId} not found`);
+      console.error(`[Match] Job ${jobId} not found`);
       return false;
     }
 
+    // Check prerequisites and log specific reasons for failure
+    const resumes = await storage.getResumes(userId);
+    if (resumes.length === 0) {
+      console.warn(`[Match] Job ${jobId} (${job.title}): No resumes found for user ${userId}`);
+      return false;
+    }
+
+    const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
+    const geminiKey = await storage.getSetting("gemini_api_key", userId);
+    const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
+    
+    if ((!perplexityKey || !perplexityKey.value) && 
+        (!geminiKey || !geminiKey.value) && 
+        (!openrouterKey || !openrouterKey.value)) {
+      console.warn(`[Match] Job ${jobId} (${job.title}): No AI API key configured for user ${userId}`);
+      return false;
+    }
+
+    console.log(`[Match] Starting ATS analysis for job ${jobId} (${job.title})...`);
     const matchResult = await matchJobAgainstResumes(job, userId);
     if (!matchResult) {
+      console.warn(`[Match] Job ${jobId} (${job.title}): matchJobAgainstResumes returned null - AI service may have failed`);
       return false;
     }
 
@@ -192,14 +215,14 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
 /**
  * Match multiple jobs in batch
  */
-export async function matchJobsBatch(jobs: Job[], userId: string): Promise<{ matched: number; failed: number }> {
+export async function matchJobsBatch(jobs: Job[], userId: string, allowReMatch: boolean = false): Promise<{ matched: number; failed: number }> {
   let matched = 0;
   let failed = 0;
 
   for (const job of jobs) {
     try {
-      // Skip if already matched recently (optional - can be removed to re-match)
-      if (job.matchScore !== null && job.matchScore !== undefined) {
+      // Skip if already matched recently (unless allowReMatch is true)
+      if (!allowReMatch && job.matchScore !== null && job.matchScore !== undefined) {
         continue;
       }
 
@@ -239,6 +262,26 @@ export async function matchAllPendingJobs(userId: string): Promise<{ matched: nu
     };
   } catch (error) {
     console.error("Error matching all pending jobs:", error);
+    return { matched: 0, failed: 0, total: 0 };
+  }
+}
+
+export async function matchAllZeroScoreJobs(userId: string): Promise<{ matched: number; failed: number; total: number }> {
+  try {
+    const allJobs = await storage.getJobs(userId);
+    const zeroScoreJobs = allJobs.filter(j => j.matchScore === 0);
+    
+    console.log(`Re-matching ${zeroScoreJobs.length} zero-score jobs...`);
+    
+    // Pass allowReMatch=true to allow re-matching jobs that already have a score
+    const result = await matchJobsBatch(zeroScoreJobs, userId, true);
+    
+    return {
+      ...result,
+      total: zeroScoreJobs.length,
+    };
+  } catch (error) {
+    console.error("Error matching zero-score jobs:", error);
     return { matched: 0, failed: 0, total: 0 };
   }
 }
