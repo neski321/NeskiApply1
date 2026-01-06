@@ -20,15 +20,6 @@ export function ZeroScoreJobsNotification() {
   });
 
   const zeroScoreCount = zeroScoreData?.count || 0;
-  
-  // Debug logging
-  console.log('[ZeroScoreNotification]', { 
-    zeroScoreCount, 
-    isLoading, 
-    hasData: !!zeroScoreData, 
-    error: queryError,
-    rawData: zeroScoreData 
-  });
 
   const matchMutation = useMutation({
     mutationFn: matchZeroScoreJobs,
@@ -60,31 +51,33 @@ export function ZeroScoreJobsNotification() {
 
   return (
     <Alert className="mb-4 border-orange-500/50 bg-orange-500/10">
-      <AlertCircle className="h-4 w-4 text-orange-500" />
-      <AlertTitle className="text-orange-500 font-semibold">
+      <AlertCircle className="h-4 w-4 text-orange-500 flex-shrink-0" />
+      <AlertTitle className="text-orange-500 font-semibold text-sm sm:text-base">
         Zero Match Score Jobs Detected
       </AlertTitle>
       <AlertDescription className="mt-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground flex-1">
             {zeroScoreCount} job{zeroScoreCount !== 1 ? "s" : ""} {zeroScoreCount === 1 ? "has" : "have"} a 0% match score. Consider re-scanning to verify the match score.
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Button
               size="sm"
               onClick={() => matchMutation.mutate()}
               disabled={matchMutation.isPending}
-              className="gap-2"
+              className="gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-8 px-3 sm:px-4 min-w-[100px] sm:min-w-0"
             >
               {matchMutation.isPending ? (
                 <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Scanning...
+                  <Loader2 className="h-3.5 w-3.5 sm:h-3 sm:w-3 animate-spin" />
+                  <span className="hidden sm:inline">Scanning...</span>
+                  <span className="sm:hidden">Scanning</span>
                 </>
               ) : (
                 <>
-                  <ScanSearch className="h-3 w-3" />
-                  Re-scan {zeroScoreCount} Job{zeroScoreCount !== 1 ? "s" : ""}
+                  <ScanSearch className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+                  <span className="hidden sm:inline">Re-scan {zeroScoreCount} Job{zeroScoreCount !== 1 ? "s" : ""}</span>
+                  <span className="sm:hidden">Re-scan</span>
                 </>
               )}
             </Button>
@@ -92,9 +85,10 @@ export function ZeroScoreJobsNotification() {
               size="sm"
               variant="ghost"
               onClick={() => setDismissed(true)}
-              className="h-8 w-8 p-0"
+              className="h-9 w-9 sm:h-8 sm:w-8 p-0 flex-shrink-0 touch-manipulation"
+              aria-label="Dismiss notification"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4 sm:h-4 sm:w-4" />
             </Button>
           </div>
         </div>
