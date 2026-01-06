@@ -276,13 +276,17 @@ export async function deleteATSAnalysis(id: number): Promise<void> {
 // ============ SETTINGS API ============
 
 export async function getSettings(): Promise<Setting[]> {
-  const response = await fetch("/api/settings");
+  const response = await fetch("/api/settings", {
+    credentials: "include",
+  });
   if (!response.ok) throw new Error("Failed to fetch settings");
   return response.json();
 }
 
 export async function getSetting(key: string): Promise<Setting> {
-  const response = await fetch(`/api/settings/${key}`);
+  const response = await fetch(`/api/settings/${key}`, {
+    credentials: "include",
+  });
   if (!response.ok) throw new Error("Failed to fetch setting");
   return response.json();
 }
@@ -291,6 +295,7 @@ export async function setSetting(key: string, value: string): Promise<Setting> {
   const response = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ key, value }),
   });
   if (!response.ok) throw new Error("Failed to set setting");
@@ -494,6 +499,7 @@ export async function testReminder(): Promise<{ success: boolean; message?: stri
 export async function testDiscordWebhook(): Promise<{ success: boolean; message?: string; error?: string }> {
   const response = await fetch("/api/discord/test", {
     method: "POST",
+    credentials: "include",
   });
   
   // Check content type before parsing
