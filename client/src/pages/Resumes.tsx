@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2, Sparkles, Calendar, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
+import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2, Sparkles, Calendar, TrendingUp, TrendingDown, CheckCircle2, File } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getResumes, createResume, updateResume, deleteResume, uploadResumeFile, getOptimizedResumes, deleteOptimizedResume, downloadOptimizedResume, getResume, type SavedOptimizedResume } from "@/lib/api";
@@ -836,13 +836,13 @@ function OptimizedResumeViewModal({
     enabled: open && !!optimized.originalResumeId,
   });
 
-  const handleDownload = async () => {
+  const handleDownload = async (format: "pdf" | "docx" = "pdf") => {
     setIsDownloading(true);
     try {
-      await downloadOptimizedResume(optimized.id);
+      await downloadOptimizedResume(optimized.id, format);
       toast({
         title: "Download started",
-        description: "Your optimized resume is being downloaded.",
+        description: `Your optimized resume is being downloaded as ${format.toUpperCase()}.`,
       });
     } catch (error) {
       toast({
@@ -1056,15 +1056,35 @@ function OptimizedResumeViewModal({
           <Separator className="my-6" />
 
           <div className="flex gap-4">
-            <Button 
-              size="lg" 
-              className="flex-1"
-              onClick={handleDownload}
-              disabled={isDownloading}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {isDownloading ? "Downloading..." : "Download PDF"}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  size="lg" 
+                  className="flex-1"
+                  disabled={isDownloading}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {isDownloading ? "Downloading..." : "Download Resume"}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem 
+                  onClick={() => handleDownload("pdf")}
+                  disabled={isDownloading}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => handleDownload("docx")}
+                  disabled={isDownloading}
+                >
+                  <File className="mr-2 h-4 w-4" />
+                  Download as Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </DialogContent>

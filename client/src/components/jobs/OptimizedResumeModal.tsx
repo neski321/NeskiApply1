@@ -5,11 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { FileText, Sparkles, Download, CheckCircle2, Brain, TrendingUp, TrendingDown, AlertTriangle, Save, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, Sparkles, Download, CheckCircle2, Brain, TrendingUp, TrendingDown, AlertTriangle, Save, ChevronDown, ChevronUp, File } from "lucide-react";
 import type { OptimizeResumeResponse, OptimizedResume } from "@/lib/api";
 import { downloadOptimizedResume } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,7 +35,7 @@ export function OptimizedResumeModal({ open, onOpenChange, result }: OptimizedRe
     return null; // Don't render if data is invalid
   }
 
-  const handleDownload = async () => {
+  const handleDownload = async (format: "pdf" | "docx" = "pdf") => {
     if (!result.savedOptimizedResume?.id) {
       toast({
         title: "Cannot download",
@@ -41,10 +47,10 @@ export function OptimizedResumeModal({ open, onOpenChange, result }: OptimizedRe
 
     setIsDownloading(true);
     try {
-      await downloadOptimizedResume(result.savedOptimizedResume.id);
+      await downloadOptimizedResume(result.savedOptimizedResume.id, format);
       toast({
         title: "Download started",
-        description: "Your optimized resume is being downloaded.",
+        description: `Your optimized resume is being downloaded as ${format.toUpperCase()}.`,
       });
     } catch (error) {
       toast({
@@ -258,15 +264,35 @@ export function OptimizedResumeModal({ open, onOpenChange, result }: OptimizedRe
           <Separator className="my-6" />
 
           <div className="flex gap-4">
-            <Button 
-              size="lg" 
-              className="flex-1"
-              onClick={handleDownload}
-              disabled={isDownloading || !result.savedOptimizedResume}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              {isDownloading ? "Downloading..." : "Download PDF"}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  size="lg" 
+                  className="flex-1"
+                  disabled={isDownloading || !result.savedOptimizedResume}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {isDownloading ? "Downloading..." : "Download Resume"}
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem 
+                  onClick={() => handleDownload("pdf")}
+                  disabled={isDownloading || !result.savedOptimizedResume}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => handleDownload("docx")}
+                  disabled={isDownloading || !result.savedOptimizedResume}
+                >
+                  <File className="mr-2 h-4 w-4" />
+                  Download as Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </DialogContent>

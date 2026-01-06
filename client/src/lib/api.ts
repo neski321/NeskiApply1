@@ -693,9 +693,13 @@ export async function optimizeResumeForJob(jobId: number): Promise<OptimizeResum
 
 export async function getOptimizedResumes(jobId?: number): Promise<SavedOptimizedResume[]> {
   const params = new URLSearchParams();
-  if (jobId) params.append("jobId", jobId.toString());
+  // Only append jobId if it's a valid number
+  if (jobId !== undefined && jobId !== null && !isNaN(jobId) && jobId > 0) {
+    params.append("jobId", jobId.toString());
+  }
   
-  const response = await fetch(`/api/optimized-resumes?${params}`, {
+  const url = params.toString() ? `/api/optimized-resumes?${params}` : `/api/optimized-resumes`;
+  const response = await fetch(url, {
     credentials: "include",
   });
   
@@ -721,8 +725,8 @@ export async function deleteOptimizedResume(id: number): Promise<void> {
   if (!response.ok) throw new Error("Failed to delete optimized resume");
 }
 
-export async function downloadOptimizedResume(id: number): Promise<void> {
-  const response = await fetch(`/api/optimized-resumes/${id}/download`, {
+export async function downloadOptimizedResume(id: number, format: "pdf" | "docx" = "pdf"): Promise<void> {
+  const response = await fetch(`/api/optimized-resumes/${id}/download?format=${format}`, {
     method: "GET",
     credentials: "include",
   });
@@ -732,7 +736,8 @@ export async function downloadOptimizedResume(id: number): Promise<void> {
   // Get the filename from the Content-Disposition header
   const contentDisposition = response.headers.get("Content-Disposition");
   const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
-  const filename = filenameMatch ? filenameMatch[1] : `optimized-resume-${Date.now()}.pdf`;
+  const defaultExtension = format === "docx" ? ".docx" : ".pdf";
+  const filename = filenameMatch ? filenameMatch[1] : `optimized-resume-${Date.now()}${defaultExtension}`;
   
   // Create a blob from the response
   const blob = await response.blob();
