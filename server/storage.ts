@@ -46,7 +46,7 @@ export interface IStorage {
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
-  upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job>;
+  upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
 
   // ATS Analyses
   createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis>;
@@ -206,24 +206,57 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount || 0;
   }
 
-  async upsertJobByExternalId(job: InsertJob, userId: string): Promise<Job> {
-    if (!job.externalId) {
-      return this.createJob(job, userId);
+  async upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }> {
+    // If externalId is provided, use it for duplicate detection
+    if (job.externalId) {
+      const [existing] = await db.select().from(jobs).where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)));
+      
+      if (existing) {
+        const [updated] = await db
+          .update(jobs)
+          .set(job)
+          .where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)))
+          .returning();
+        return { job: updated, wasInserted: false };
+      }
+
+      const newJob = await this.createJob(job, userId);
+      return { job: newJob, wasInserted: true };
     }
 
-    // Check for existing job with same externalId AND userId
-    const [existing] = await db.select().from(jobs).where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)));
-    
-    if (existing) {
-      const [updated] = await db
-        .update(jobs)
-        .set(job)
-        .where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)))
-        .returning();
-      return updated;
+    // Fallback: If no externalId, check for duplicate by URL (if URL is provided)
+    // This helps prevent duplicates when n8n doesn't provide a consistent ID
+    if (job.url) {
+      const [existingByUrl] = await db.select().from(jobs).where(
+        and(
+          eq(jobs.url, job.url),
+          eq(jobs.userId, userId),
+          eq(jobs.title, job.title), // Also match title to avoid false positives
+          eq(jobs.company, job.company) // And company
+        )
+      );
+      
+      if (existingByUrl) {
+        // Update existing job with new data
+        const [updated] = await db
+          .update(jobs)
+          .set(job)
+          .where(
+            and(
+              eq(jobs.url, job.url),
+              eq(jobs.userId, userId),
+              eq(jobs.title, job.title),
+              eq(jobs.company, job.company)
+            )
+          )
+          .returning();
+        return { job: updated, wasInserted: false };
+      }
     }
 
-    return this.createJob(job, userId);
+    // No duplicate found, create new job
+    const newJob = await this.createJob(job, userId);
+    return { job: newJob, wasInserted: true };
   }
 
   // ATS Analyses

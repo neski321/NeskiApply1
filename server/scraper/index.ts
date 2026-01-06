@@ -153,17 +153,18 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
       
       for (const job of filteredJobs) {
         try {
-          const savedJob = await storage.upsertJobByExternalId(job, userId);
-          if (savedJob) {
+          const { job: savedJob, wasInserted } = await storage.upsertJobByExternalId(job, userId);
+          if (wasInserted) {
             jobsAdded++;
             
-            // Auto-match the job against resumes (in background)
+            // Auto-match the job against resumes (in background) - only for new jobs
             import("../matcher/job-matcher").then(({ matchAndUpdateJob }) => {
               matchAndUpdateJob(savedJob.id, userId).catch(err => 
                 console.error(`Error auto-matching job ${savedJob.id}:`, err)
               );
             });
           }
+          // If wasInserted is false, it means it was a duplicate/update, so we skip it
         } catch (error) {
           console.error("Error saving JSearch job:", error);
         }

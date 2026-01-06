@@ -1208,15 +1208,22 @@ export async function registerRoutes(
           } as InsertJob;
           
           // Use existing upsert mechanism (same as JSearch scraper)
-          // This handles both insert and update automatically
-          const savedJob = await storage.upsertJobByExternalId(insertJob, userId);
+          // This handles both insert and update automatically with duplicate detection
+          // Duplicate detection: First by externalId, then by URL+title+company if externalId is missing
+          const { job: savedJob, wasInserted } = await storage.upsertJobByExternalId(insertJob, userId);
           
-          // For simplicity, we'll count all as inserted (upsert handles duplicates)
-          // In practice, if externalId matches, it updates; otherwise inserts
-          inserted++;
+          // Track inserts vs updates properly
+          if (wasInserted) {
+            inserted++;
+          } else {
+            updated++;
+            // Skip auto-matching for updates (job already matched previously)
+            processed++;
+            continue;
+          }
           
-          // Always trigger auto-matching for new jobs
-          // (matching is idempotent, so safe to call on updates too)
+          // Always trigger auto-matching for new jobs only
+          // (matching is idempotent, but we skip it for updates to avoid unnecessary processing)
           import("./matcher/job-matcher").then(({ matchAndUpdateJob }) => {
             matchAndUpdateJob(savedJob.id, userId).catch(err => 
               console.error(`[Ingest] Error auto-matching job ${savedJob.id}:`, err)
