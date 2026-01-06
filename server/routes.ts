@@ -16,6 +16,14 @@ import { requireAuth } from "./auth/middleware";
 import { getUserIdFromRequest, getUserFromRequest } from "./auth/helpers";
 import { isAdmin, requireAdmin } from "./auth/admin";
 
+// Security: Helper function to safely parse and validate integer parameters
+function parseIdParam(param: string | undefined, paramName: string = "id"): number | null {
+  if (!param) return null;
+  const parsed = parseInt(param, 10);
+  if (isNaN(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -186,7 +194,10 @@ export async function registerRoutes(
   app.get("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid resume ID" });
+      }
       const resume = await storage.getResume(id, userId);
       
       if (!resume) {
@@ -225,7 +236,10 @@ export async function registerRoutes(
   app.patch("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid resume ID" });
+      }
       const partialSchema = insertResumeSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
@@ -249,7 +263,10 @@ export async function registerRoutes(
   app.delete("/api/resumes/:id", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const id = parseInt(req.params.id);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid resume ID" });
+      }
       const resume = await storage.getResume(id, userId);
       const deleted = await storage.deleteResume(id, userId);
       
