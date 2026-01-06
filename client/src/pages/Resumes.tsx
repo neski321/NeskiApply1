@@ -324,7 +324,7 @@ export default function Resumes() {
                         <Input
                           ref={fileInputRef}
                           type="file"
-                          accept=".pdf,.docx,.doc,.txt"
+                          accept=".docx,.doc,.txt"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {
@@ -338,7 +338,7 @@ export default function Resumes() {
                         />
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Supported formats: PDF, DOCX, DOC, TXT (Max 10MB)
+                        Supported formats: DOCX, DOC, TXT (Max 10MB)
                       </p>
                       {uploadFile && (
                         <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-md">

@@ -325,18 +325,13 @@ export async function registerRoutes(
   });
 
   // Security: Validate file content by checking magic numbers (file signatures)
+  // Note: PDF support removed - only DOC/DOCX/TXT are supported
   const validateFileContent = async (filePath: string, expectedExt: string): Promise<boolean> => {
     try {
       const buffer = await readFile(filePath);
       const fileSignature = buffer.slice(0, 8); // Read first 8 bytes
       
-      // PDF magic number: %PDF
-      if (expectedExt === ".pdf") {
-        const pdfSignature = Buffer.from("%PDF");
-        return fileSignature.slice(0, 4).equals(pdfSignature);
-      }
-      
-      // DOCX/DOCX magic number: PK (ZIP format) - DOCX is a ZIP file
+      // DOCX magic number: PK (ZIP format) - DOCX is a ZIP file
       if (expectedExt === ".docx") {
         const zipSignature = Buffer.from("PK");
         return fileSignature.slice(0, 2).equals(zipSignature);
@@ -376,7 +371,7 @@ export async function registerRoutes(
       fileSize: maxFileSize,
     },
     fileFilter: (req, file, cb) => {
-      const allowedExts = [".pdf", ".docx", ".doc", ".txt"];
+      const allowedExts = [".docx", ".doc", ".txt"];
       const ext = path.extname(file.originalname).toLowerCase();
       if (allowedExts.includes(ext)) {
         cb(null, true);

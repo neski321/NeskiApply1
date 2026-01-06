@@ -115,20 +115,28 @@ app.use((req, res, next) => {
   
   const origin = req.headers.origin;
   
+  // If no Origin header, it's a same-origin request (CORS doesn't apply)
+  // This happens when frontend and backend are on the same domain
+  if (!origin) {
+    // Same-origin request - no CORS headers needed, but allow it
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    return next();
+  }
+  
   if (isProduction && allowedOrigins.length > 0) {
     // In production with configured origins, only allow those
-    if (origin && allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) {
       res.header("Access-Control-Allow-Origin", origin);
     }
     // If no origin matches and it's a CORS request, reject it
-    else if (origin && req.method !== "OPTIONS") {
+    else if (req.method !== "OPTIONS") {
       return res.status(403).json({ error: "Origin not allowed" });
     }
   } else {
     // In development or if no origins configured, allow the requesting origin
-    if (origin) {
-      res.header("Access-Control-Allow-Origin", origin);
-    }
+    res.header("Access-Control-Allow-Origin", origin);
   }
   
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
