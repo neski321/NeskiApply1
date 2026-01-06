@@ -10,7 +10,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { parseResume } from "./parser/resume-parser";
-import { unlink, mkdir } from "fs/promises";
+import { unlink, mkdir, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { requireAuth } from "./auth/middleware";
 import { getUserIdFromRequest, getUserFromRequest } from "./auth/helpers";
@@ -307,6 +307,52 @@ export async function registerRoutes(
     },
   });
 
+  // Security: Validate file content by checking magic numbers (file signatures)
+  const validateFileContent = async (filePath: string, expectedExt: string): Promise<boolean> => {
+    try {
+      const buffer = await readFile(filePath);
+      const fileSignature = buffer.slice(0, 8); // Read first 8 bytes
+      
+      // PDF magic number: %PDF
+      if (expectedExt === ".pdf") {
+        const pdfSignature = Buffer.from("%PDF");
+        return fileSignature.slice(0, 4).equals(pdfSignature);
+      }
+      
+      // DOCX/DOCX magic number: PK (ZIP format) - DOCX is a ZIP file
+      if (expectedExt === ".docx") {
+        const zipSignature = Buffer.from("PK");
+        return fileSignature.slice(0, 2).equals(zipSignature);
+      }
+      
+      // DOC magic number: D0 CF 11 E0 A1 B1 1A E1 (OLE2 format)
+      if (expectedExt === ".doc") {
+        const docSignature = Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+        return fileSignature.equals(docSignature);
+      }
+      
+      // TXT files - no specific magic number, accept any text-like content
+      if (expectedExt === ".txt") {
+        // Check if file contains mostly printable ASCII/UTF-8 characters
+        const textSample = buffer.slice(0, Math.min(512, buffer.length));
+        const isText = textSample.every(byte => 
+          (byte >= 0x20 && byte <= 0x7E) || // Printable ASCII
+          byte === 0x09 || // Tab
+          byte === 0x0A || // Newline
+          byte === 0x0D || // Carriage return
+          (byte >= 0xC0 && byte <= 0xDF) || // UTF-8 start bytes
+          (byte >= 0x80 && byte <= 0xBF) // UTF-8 continuation bytes
+        );
+        return isText;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("Error validating file content:", error);
+      return false;
+    }
+  };
+
   const upload = multer({
     storage: storageConfig,
     limits: {
@@ -347,6 +393,18 @@ export async function registerRoutes(
       
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      // Security: Validate file content matches extension
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isValidContent = await validateFileContent(req.file.path, ext);
+      
+      if (!isValidContent) {
+        // Clean up uploaded file
+        await unlink(req.file.path);
+        return res.status(400).json({ 
+          error: "File content does not match file type. The file may be corrupted or malicious." 
+        });
       }
 
       const { name } = req.body;
