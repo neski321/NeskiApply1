@@ -42,6 +42,12 @@ app.use(
     },
     crossOriginEmbedderPolicy: false, // Disable for Railway compatibility
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resources
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" }, // Security: Control referrer information
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
   })
 );
 
@@ -96,17 +102,37 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
-// CORS headers for Railway (if needed)
+// Security: CORS configuration
 app.use((req, res, next) => {
   // Allow credentials (cookies) to be sent
   res.header("Access-Control-Allow-Credentials", "true");
-  // Allow the origin that's making the request
+  
+  // Security: Restrict CORS origins in production
+  const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+    : [];
+  
   const origin = req.headers.origin;
-  if (origin) {
-    res.header("Access-Control-Allow-Origin", origin);
+  
+  if (isProduction && allowedOrigins.length > 0) {
+    // In production with configured origins, only allow those
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+    }
+    // If no origin matches and it's a CORS request, reject it
+    else if (origin && req.method !== "OPTIONS") {
+      return res.status(403).json({ error: "Origin not allowed" });
+    }
+  } else {
+    // In development or if no origins configured, allow the requesting origin
+    if (origin) {
+      res.header("Access-Control-Allow-Origin", origin);
+    }
   }
+  
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-neskiapply-ingest-key");
   
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
@@ -210,12 +236,43 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // Security: Global error handler - sanitize errors in production
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
+    
+    // Log full error details server-side
+    console.error("Error:", {
+      message: err.message,
+      stack: err.stack,
+      status,
+      path: _req.path,
+      method: _req.method,
+    });
+    
+    // Security: Don't leak error details in production
+    if (isProduction) {
+      // In production, only send generic error messages
+      if (status >= 500) {
+        res.status(500).json({ 
+          error: "Internal server error",
+          message: "An unexpected error occurred. Please try again later." 
+        });
+      } else {
+        // For client errors (4xx), send the message but sanitize it
+        const safeMessage = err.message && typeof err.message === 'string' 
+          ? err.message.substring(0, 200) // Limit message length
+          : "Bad request";
+        res.status(status).json({ error: safeMessage });
+      }
+    } else {
+      // In development, show full error details
+      res.status(status).json({ 
+        error: err.message || "Internal Server Error",
+        stack: err.stack,
+        details: err 
+      });
+    }
   });
 
   // Setup daily job scraping cron job (only if not using Railway cron)

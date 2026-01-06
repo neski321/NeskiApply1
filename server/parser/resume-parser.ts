@@ -8,16 +8,70 @@ let mammoth: any;
 // Lazy load modules to avoid issues with import.meta.url in CJS
 async function loadPdfParse() {
   if (!pdfParse) {
-    const pdfParseModule = await import("pdf-parse");
-    // pdf-parse is a CommonJS module, it may export default or be the default export
-    pdfParse = pdfParseModule.default || pdfParseModule;
+    try {
+      // Try require first (for bundled CommonJS production)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      if (typeof require !== "undefined") {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const pdfParseModule = require("pdf-parse");
+          pdfParse = pdfParseModule.default || pdfParseModule;
+          if (typeof pdfParse === "function") {
+            return pdfParse;
+          }
+        } catch (requireError) {
+          // require failed, fall through to dynamic import
+          console.log("[PDF Parse] require() failed, trying dynamic import:", requireError);
+        }
+      }
+      
+      // Fallback to dynamic import (for ESM development)
+      const pdfParseModule = await import("pdf-parse");
+      // pdf-parse is a CommonJS module - handle various export formats
+      if (typeof pdfParseModule === "function") {
+        pdfParse = pdfParseModule;
+      } else if (pdfParseModule.default && typeof pdfParseModule.default === "function") {
+        pdfParse = pdfParseModule.default;
+      } else {
+        pdfParse = pdfParseModule.default || pdfParseModule;
+      }
+      
+      // Final validation
+      if (typeof pdfParse !== "function") {
+        throw new Error(`pdf-parse module is not a function. Type: ${typeof pdfParse}`);
+      }
+    } catch (error) {
+      console.error("Error loading pdf-parse module:", error);
+      throw new Error(`Failed to load pdf-parse module: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   }
   return pdfParse;
 }
 
 async function loadMammoth() {
   if (!mammoth) {
-    mammoth = await import("mammoth");
+    try {
+      // Try require first (for bundled CommonJS production)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      if (typeof require !== "undefined") {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          mammoth = require("mammoth");
+          if (mammoth) {
+            return mammoth;
+          }
+        } catch (requireError) {
+          // require failed, fall through to dynamic import
+          console.log("[Mammoth] require() failed, trying dynamic import:", requireError);
+        }
+      }
+      
+      // Fallback to dynamic import (for ESM development)
+      mammoth = await import("mammoth");
+    } catch (error) {
+      console.error("Error loading mammoth module:", error);
+      throw new Error(`Failed to load mammoth module: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   }
   return mammoth;
 }
