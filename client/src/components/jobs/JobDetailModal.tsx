@@ -101,30 +101,34 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
   const { startOptimization, notifyModalClosed, completeOptimization, failOptimization } = useOptimization();
 
   const optimizeResumeMutation = useMutation({
-    mutationFn: () => optimizeResumeForJob(job!.id),
+    mutationFn: () => {
+      startOptimization(job!.id, job!.title, job!.company);
+      return optimizeResumeForJob(job!.id);
+    },
     onSuccess: (data) => {
       setIsOptimizing(false);
       setOptimizationResult(data);
       setShowOptimizedModal(true);
       
-      // Complete the optimization tracking
-      if (data.savedOptimizedResume) {
-        completeOptimization(data.savedOptimizedResume.id);
+      // Complete the optimization tracking with full data
+      // Only call if job still exists (component might be unmounting)
+      // Wrap in try-catch to prevent errors in notification from triggering onError
+      if (job?.id && data) {
+        try {
+          completeOptimization(job.id, data);
+        } catch (error) {
+          console.error("Error in completeOptimization (optimization still succeeded):", error);
+          // Don't call failOptimization here - the optimization actually succeeded!
+          // The error is just in the notification system
+        }
       }
       
-      toast({
-        title: "Resume optimized",
-        description: "Your resume has been optimized for this job. Review the changes below.",
-      });
+      // Toast is now handled by the context provider if modal was closed
     },
     onError: (error: Error) => {
       setIsOptimizing(false);
       failOptimization(error.message);
-      toast({
-        title: "Optimization failed",
-        description: error.message,
-        variant: "destructive",
-      });
+      // Toast is now handled by the context provider if modal was closed
     },
   });
 
@@ -186,7 +190,7 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
   const handleModalClose = (newOpen: boolean) => {
     if (!newOpen && isOptimizing) {
       // User is closing modal while optimization is running
-      notifyModalClosed();
+      notifyModalClosed(job!.id);
     }
     onOpenChange(newOpen);
   };

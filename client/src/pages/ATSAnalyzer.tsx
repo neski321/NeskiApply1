@@ -36,7 +36,7 @@ export default function ATSAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
-  const [aiProvider, setAiProvider] = useState<"auto" | "perplexity" | "gemini">("auto");
+  const [aiProvider, setAiProvider] = useState<"auto" | "perplexity" | "gemini" | "openrouter">("auto");
   
   // Get user's default AI provider preference from settings
   const { data: settings = [] } = useQuery({
@@ -46,8 +46,8 @@ export default function ATSAnalyzer() {
   
   useEffect(() => {
     const providerSetting = settings.find(s => s.key === "ai_provider_preference");
-    if (providerSetting?.value && ["auto", "perplexity", "gemini"].includes(providerSetting.value)) {
-      setAiProvider(providerSetting.value as "auto" | "perplexity" | "gemini");
+    if (providerSetting?.value && ["auto", "perplexity", "gemini", "openrouter"].includes(providerSetting.value)) {
+      setAiProvider(providerSetting.value as "auto" | "perplexity" | "gemini" | "openrouter");
     }
   }, [settings]);
   
@@ -321,13 +321,14 @@ export default function ATSAnalyzer() {
                     <Brain className="h-4 w-4 text-primary" />
                     AI Provider
                   </Label>
-                  <Select value={aiProvider} onValueChange={(value) => setAiProvider(value as "auto" | "perplexity" | "gemini")}>
+                  <Select value={aiProvider} onValueChange={(value) => setAiProvider(value as "auto" | "perplexity" | "gemini" | "openrouter")}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select AI provider" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">Auto (Use Default Settings)</SelectItem>
                       <SelectItem value="perplexity">Perplexity</SelectItem>
+                      <SelectItem value="openrouter">OpenRouter</SelectItem>
                       <SelectItem value="gemini">Gemini</SelectItem>
                     </SelectContent>
                   </Select>
@@ -336,6 +337,8 @@ export default function ATSAnalyzer() {
                       ? "Uses your default AI provider preference from Settings"
                       : aiProvider === "perplexity"
                       ? "Uses Perplexity AI for this analysis"
+                      : aiProvider === "openrouter"
+                      ? "Uses OpenRouter for this analysis"
                       : "Uses Google Gemini AI for this analysis"}
                   </p>
                 </div>
@@ -531,12 +534,24 @@ export default function ATSAnalyzer() {
                   <div className="flex items-center gap-6 relative z-10">
                     <MatchRing score={analysisResult.matchScore} size="lg" />
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Badge className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border-emerald-500/50">Recommended Resume</Badge>
                         <span className="text-xs text-muted-foreground">Matched against {resumes.length} resumes</span>
                         {allAnalyses.length > 1 && (
                           <Badge variant="outline" className="text-xs">
                             {currentAnalysisIndex === 0 ? "Latest" : `Analysis ${currentAnalysisIndex + 1}`}
+                          </Badge>
+                        )}
+                        {existingAnalysis?.aiProvider && (
+                          <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                            <Brain className="h-3 w-3" />
+                            {existingAnalysis.aiProvider === "openrouter" && existingAnalysis.aiModel
+                              ? existingAnalysis.aiModel.split("/").pop() || "OpenRouter"
+                              : existingAnalysis.aiProvider === "perplexity"
+                              ? "Perplexity"
+                              : existingAnalysis.aiProvider === "gemini"
+                              ? "Gemini"
+                              : existingAnalysis.aiProvider}
                           </Badge>
                         )}
                       </div>

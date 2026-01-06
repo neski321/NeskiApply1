@@ -806,7 +806,10 @@ function OptimizedResumeViewModal({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-w-0">
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-lg sm:text-xl md:text-2xl break-words">Saved Optimized Resume</DialogTitle>
-              <DialogDescription className="mt-2 space-y-1 min-w-0">
+              <DialogDescription className="sr-only">
+                View your optimized resume for {optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "this job"}
+              </DialogDescription>
+              <div className="mt-2 space-y-1 min-w-0">
                 <div className="text-xs sm:text-sm break-words">
                   <span className="font-medium">Job:</span> {optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "Loading..."}
                 </div>
@@ -822,7 +825,7 @@ function OptimizedResumeViewModal({
                     Optimized on {format(new Date(optimized.createdAt), "MMM d, yyyy 'at' h:mm a")}
                   </span>
                 </div>
-              </DialogDescription>
+              </div>
             </div>
             <Badge variant="secondary" className="self-start sm:self-auto">
               {Array.isArray(optimized.changes) ? optimized.changes.length : 0} changes
