@@ -113,20 +113,19 @@ export async function parseDOCX(filePath: string): Promise<string> {
 
 /**
  * Parse resume file based on extension
+ * Note: PDF support removed - only DOC/DOCX/TXT are supported
  */
 export async function parseResumeFile(filePath: string): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
   
   switch (ext) {
-    case ".pdf":
-      return await parsePDF(filePath);
     case ".docx":
     case ".doc":
       return await parseDOCX(filePath);
     case ".txt":
       return await readFile(filePath, "utf-8");
     default:
-      throw new Error(`Unsupported file type: ${ext}. Supported types: .pdf, .docx, .doc, .txt`);
+      throw new Error(`Unsupported file type: ${ext}. Supported types: .docx, .doc, .txt`);
   }
 }
 
