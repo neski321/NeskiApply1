@@ -15,15 +15,18 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Job } from "@shared/schema";
-import { Building2, Calendar, MapPin, ChevronRight, ExternalLink, Trash2, Clock, CheckCircle2 } from "lucide-react";
+import { Building2, Calendar, MapPin, ChevronRight, ExternalLink, Trash2, Clock, CheckCircle2, AlertCircle, FileText, Sparkles } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateJob, deleteJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
+  const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
 
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => updateJob(job.id, { status }),
@@ -71,21 +74,40 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
     }
   };
 
-  const handleToggleApplied = (checked: boolean) => {
-    updateJob(job.id, { isApplied: checked }).then(() => {
+  const updateJobMutation = useMutation({
+    mutationFn: (data: Partial<Job>) => updateJob(job.id, data),
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      toast({
-        title: checked ? "Marked as applied" : "Unmarked as applied",
-        description: `"${job.title}" ${checked ? "has been marked as applied" : "is no longer marked as applied"}`,
-      });
-    }).catch((error: Error) => {
+      
+      // Check if there are optimized resumes when marking as applied
+      if (response.hasOptimizedResumes && response.optimizedResumesCount) {
+        setOptimizedResumesCount(response.optimizedResumesCount);
+        setShowOptimizedResumeAlert(true);
+      } else {
+        toast({
+          title: "Marked as applied",
+          description: `"${job.title}" has been marked as applied`,
+        });
+      }
+    },
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message,
         variant: "destructive",
       });
-    });
+    },
+  });
+
+  const handleToggleApplied = (checked: boolean) => {
+    updateJobMutation.mutate({ isApplied: checked });
+    if (!checked) {
+      toast({
+        title: "Unmarked as applied",
+        description: `"${job.title}" is no longer marked as applied`,
+      });
+    }
   };
 
   const handleViewAnalysis = () => {
@@ -157,7 +179,13 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
                 <Badge variant="default" className="gap-1 text-xs">
                   <CheckCircle2 className="h-3 w-3" />
                   Applied
-            </Badge>
+                </Badge>
+              )}
+              {(job as any).hasOptimizedResume && (
+                <Badge variant="secondary" className="gap-1 text-xs bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                  <Sparkles className="h-3 w-3" />
+                  Optimized
+                </Badge>
               )}
             </div>
           </div>
@@ -165,8 +193,8 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
           {/* Tags */}
           {job.tags && job.tags.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {job.tags.map(tag => (
-                <span key={tag} className="px-2 py-0.5 rounded-md bg-muted/50 text-xs text-muted-foreground font-mono border border-transparent group-hover:border-primary/20 transition-colors">
+              {job.tags.map((tag, index) => (
+                <span key={`job-${job.id}-tag-${tag}-${index}`} className="px-2 py-0.5 rounded-md bg-muted/50 text-xs text-muted-foreground font-mono border border-transparent group-hover:border-primary/20 transition-colors">
                   {tag}
                 </span>
               ))}
@@ -243,6 +271,47 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
                 disabled={deleteJobMutation.isPending}
               >
                 {deleteJobMutation.isPending ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Alert Dialog for Optimized Resume Warning */}
+        <AlertDialog open={showOptimizedResumeAlert} onOpenChange={setShowOptimizedResumeAlert}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-500" />
+                Download Your Optimized Resume
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-3 pt-2">
+                <p>
+                  This job has {optimizedResumesCount} optimized resume{optimizedResumesCount > 1 ? "s" : ""} attached to it.
+                </p>
+                <p className="font-medium text-foreground">
+                  Please make sure to download the optimized resume{optimizedResumesCount > 1 ? "s" : ""} for your records.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  The optimized resume{optimizedResumesCount > 1 ? "s" : ""} will be automatically deleted from the system 3 days after marking this job as applied.
+                </p>
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setShowOptimizedResumeAlert(false);
+                      window.location.href = "/resumes?tab=optimized";
+                    }}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Go to Optimized Resumes
+                  </Button>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setShowOptimizedResumeAlert(false)}>
+                I Understand
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

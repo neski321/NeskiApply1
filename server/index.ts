@@ -158,10 +158,11 @@ app.use((req, res, next) => {
   // Setup daily job scraping cron job (only if not using Railway cron)
   // Set DISABLE_NODE_CRON=true if using Railway's native cron jobs
   if (!process.env.DISABLE_NODE_CRON) {
-    const { setupDailyScraping, setupReminderCron, setupJobCleanup } = await import("./cron/index");
+    const { setupDailyScraping, setupReminderCron, setupJobCleanup, setupOptimizedResumeCleanup } = await import("./cron/index");
     await setupDailyScraping();
     await setupReminderCron();
     await setupJobCleanup();
+    await setupOptimizedResumeCleanup();
   } else {
     console.log("[Server] node-cron disabled - using Railway cron jobs instead");
   }

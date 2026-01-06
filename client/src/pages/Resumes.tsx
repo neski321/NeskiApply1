@@ -1,10 +1,11 @@
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2 } from "lucide-react";
+import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2, Sparkles, Calendar, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getResumes, createResume, updateResume, deleteResume, uploadResumeFile } from "@/lib/api";
+import { getResumes, createResume, updateResume, deleteResume, uploadResumeFile, getOptimizedResumes, deleteOptimizedResume, downloadOptimizedResume, getResume, type SavedOptimizedResume } from "@/lib/api";
+import { format } from "date-fns";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,10 @@ import {
 import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Resume } from "@shared/schema";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Brain, ChevronDown, ChevronUp } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export default function Resumes() {
   const { toast } = useToast();
@@ -50,6 +55,29 @@ export default function Resumes() {
   const { data: resumes = [], isLoading } = useQuery({
     queryKey: ["resumes"],
     queryFn: getResumes,
+  });
+
+  const { data: optimizedResumes = [], isLoading: isLoadingOptimized } = useQuery({
+    queryKey: ["optimizedResumes"],
+    queryFn: getOptimizedResumes,
+  });
+
+  const deleteOptimizedMutation = useMutation({
+    mutationFn: deleteOptimizedResume,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["optimizedResumes"] });
+      toast({
+        title: "Optimized resume deleted",
+        description: "The optimized resume has been deleted successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const createMutation = useMutation({
@@ -216,7 +244,9 @@ export default function Resumes() {
                Manage your tailored resumes used for matching.
              </p>
           </div>
-          
+        </div>
+
+        <div className="flex items-center justify-end mb-4">
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) {
@@ -387,24 +417,31 @@ export default function Resumes() {
           </Dialog>
         </div>
 
-        {isLoading ? (
-          <div className="text-center py-12 text-muted-foreground">Loading resumes...</div>
-        ) : resumes.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="h-16 w-16 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-4">
-              <FileText className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">No resumes yet</h3>
-            <p className="text-muted-foreground max-w-md mx-auto mb-6">
-              Add your first resume to start matching with jobs and analyzing ATS compatibility.
-            </p>
-            <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
-              <Plus className="h-4 w-4" /> Add Your First Resume
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {resumes.map((resume) => (
+        <Tabs defaultValue="resumes" className="w-full">
+          <TabsList>
+            <TabsTrigger value="resumes">My Resumes</TabsTrigger>
+            <TabsTrigger value="optimized">Optimized Resumes</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="resumes" className="mt-6">
+            {isLoading ? (
+              <div className="text-center py-12 text-muted-foreground">Loading resumes...</div>
+            ) : resumes.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="h-16 w-16 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-medium mb-2">No resumes yet</h3>
+                <p className="text-muted-foreground max-w-md mx-auto mb-6">
+                  Add your first resume to start matching with jobs and analyzing ATS compatibility.
+                </p>
+                <Button onClick={() => setIsDialogOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" /> Add Your First Resume
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {resumes.map((resume) => (
               <Card key={resume.id} className="bg-card/50 border-border/50 hover:border-primary/50 transition-colors group">
                 <CardHeader className="flex flex-row items-start justify-between pb-2">
                   <div className="p-2 bg-primary/10 rounded-lg text-primary">
@@ -468,9 +505,38 @@ export default function Resumes() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        )}
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="optimized" className="mt-6">
+            {isLoadingOptimized ? (
+              <div className="text-center py-12 text-muted-foreground">Loading optimized resumes...</div>
+            ) : optimizedResumes.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="h-16 w-16 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-4">
+                  <Sparkles className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-medium mb-2">No optimized resumes yet</h3>
+                <p className="text-muted-foreground max-w-md mx-auto mb-6">
+                  Optimize a resume for a job to see it here. You can download optimized resumes anytime.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {optimizedResumes.map((optimized) => (
+                  <OptimizedResumeCard
+                    key={optimized.id}
+                    optimized={optimized}
+                    onDelete={() => deleteOptimizedMutation.mutate(optimized.id)}
+                    isDeleting={deleteOptimizedMutation.isPending}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Delete Confirmation Dialog */}
@@ -572,5 +638,488 @@ export default function Resumes() {
         </DialogContent>
       </Dialog>
     </Layout>
+  );
+}
+
+function OptimizedResumeCard({ 
+  optimized, 
+  onDelete, 
+  isDeleting 
+}: { 
+  optimized: SavedOptimizedResume; 
+  onDelete: () => void;
+  isDeleting: boolean;
+}) {
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <>
+      <Card className="bg-card/50 border-border/50 hover:border-primary/50 transition-colors group">
+        <CardHeader className="flex flex-row items-start justify-between pb-2">
+          <div className="p-2 bg-primary/10 rounded-lg text-primary">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setShowModal(true)}>
+                <FileText className="h-4 w-4 mr-2" />
+                View & Download
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={onDelete}
+                className="text-destructive focus:text-destructive"
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <h3 className="font-semibold text-base mb-1">
+              {optimized.job ? `${optimized.job.title} - ${optimized.job.company}` : "Loading job..."}
+            </h3>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+              <FileText className="h-3 w-3" />
+              <span>From: {optimized.originalResume?.name || "Unknown Resume"}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              {format(new Date(optimized.createdAt), "MMM d, yyyy")}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4 pt-2 border-t">
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">Original</div>
+              <div className="text-sm font-semibold">{optimized.originalScore}/100</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">Optimized</div>
+              <div className={`text-sm font-semibold flex items-center gap-1 justify-center ${
+                optimized.improved ? "text-emerald-600" : "text-amber-600"
+              }`}>
+                {optimized.newScore}/100
+                {optimized.improved ? (
+                  <TrendingUp className="h-3 w-3" />
+                ) : (
+                  <TrendingDown className="h-3 w-3" />
+                )}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">Change</div>
+              <div className={`text-sm font-semibold ${
+                optimized.scoreImprovement > 0 
+                  ? "text-emerald-600" 
+                  : optimized.scoreImprovement < 0
+                  ? "text-red-600"
+                  : "text-muted-foreground"
+              }`}>
+                {optimized.scoreImprovement > 0 ? "+" : ""}
+                {optimized.scoreImprovement}
+              </div>
+            </div>
+          </div>
+
+          <Button 
+            onClick={() => setShowModal(true)} 
+            className="w-full gap-2" 
+            variant="outline"
+          >
+            <Download className="h-4 w-4" />
+            View & Download
+          </Button>
+        </CardContent>
+      </Card>
+
+      {showModal && (
+        <OptimizedResumeViewModal
+          optimized={optimized}
+          open={showModal}
+          onOpenChange={setShowModal}
+        />
+      )}
+    </>
+  );
+}
+
+function OptimizedResumeViewModal({
+  optimized,
+  open,
+  onOpenChange,
+}: {
+  optimized: SavedOptimizedResume;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [isChangesOpen, setIsChangesOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const { toast } = useToast();
+  
+  // Fetch the original resume for comparison
+  const { data: originalResume, isLoading: isLoadingOriginal } = useQuery({
+    queryKey: ["resume", optimized.originalResumeId],
+    queryFn: () => getResume(optimized.originalResumeId),
+    enabled: open && !!optimized.originalResumeId,
+  });
+
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      await downloadOptimizedResume(optimized.id);
+      toast({
+        title: "Download started",
+        description: "Your optimized resume is being downloaded.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Failed to download resume",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const optimizedResumeData = {
+    professionalSummary: optimized.professionalSummary,
+    technicalSkills: optimized.technicalSkills,
+    education: optimized.education || "",
+    relevantExperience: optimized.relevantExperience,
+    projects: optimized.projects || [],
+    changes: optimized.changes,
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-[calc(100vw-4rem)] md:w-full p-3 sm:p-6">
+        <DialogHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 min-w-0">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-lg sm:text-xl md:text-2xl break-words">Saved Optimized Resume</DialogTitle>
+              <DialogDescription className="mt-2 space-y-1 min-w-0">
+                <div className="text-xs sm:text-sm break-words">
+                  <span className="font-medium">Job:</span> {optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "Loading..."}
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="text-xs text-muted-foreground truncate min-w-0">
+                    <span className="font-medium">Original Resume:</span> {optimized.originalResume?.name || "Unknown Resume"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="text-xs text-muted-foreground">
+                    Optimized on {format(new Date(optimized.createdAt), "MMM d, yyyy 'at' h:mm a")}
+                  </span>
+                </div>
+              </DialogDescription>
+            </div>
+            <Badge variant="secondary" className="self-start sm:self-auto">
+              {Array.isArray(optimized.changes) ? optimized.changes.length : 0} changes
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="mt-4 sm:mt-6 min-w-0 overflow-hidden">
+          <Tabs defaultValue="comparison" className="w-full min-w-0">
+            <TabsList className="flex flex-col sm:flex-row w-full sm:w-auto h-auto sm:h-9 bg-muted/50 sm:bg-muted gap-1 sm:gap-0">
+              <TabsTrigger value="comparison" className="text-xs sm:text-sm px-3 sm:px-4 py-2 w-full sm:w-auto justify-start sm:justify-center">
+                Side-by-Side Comparison
+              </TabsTrigger>
+              <TabsTrigger value="resume" className="text-xs sm:text-sm px-3 sm:px-4 py-2 w-full sm:w-auto justify-start sm:justify-center">
+                Optimized Resume
+              </TabsTrigger>
+              <TabsTrigger value="scores" className="text-xs sm:text-sm px-3 sm:px-4 py-2 w-full sm:w-auto justify-start sm:justify-center">
+                Score Comparison
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="comparison" className="mt-4 sm:mt-6">
+                {isLoadingOriginal ? (
+                  <div className="text-center py-12 text-muted-foreground">Loading original resume...</div>
+                ) : !originalResume ? (
+                  <div className="text-center py-12 text-muted-foreground">Original resume not found</div>
+                ) : (
+                  <div className="grid gap-6 md:grid-cols-2 min-w-0">
+                    {/* Original Resume */}
+                    <div className="space-y-4 min-w-0 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 flex-shrink-0" />
+                        <h3 className="font-semibold text-sm sm:text-base">Original Resume</h3>
+                      </div>
+                      <ScrollArea className="h-[400px] sm:h-[500px] md:h-[600px] rounded-lg border bg-muted/30 p-3 sm:p-4 w-full">
+                        <div className="max-w-full overflow-hidden">
+                          <ResumeView resume={originalResume} />
+                        </div>
+                      </ScrollArea>
+                    </div>
+
+                    {/* Optimized Resume */}
+                    <div className="space-y-4 min-w-0 overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
+                        <h3 className="font-semibold text-sm sm:text-base">Optimized Resume</h3>
+                      </div>
+                      <ScrollArea className="h-[400px] sm:h-[500px] md:h-[600px] rounded-lg border bg-primary/5 p-3 sm:p-4 w-full">
+                        <div className="max-w-full overflow-hidden">
+                          <OptimizedResumeView optimized={optimizedResumeData} />
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </div>
+                )}
+            </TabsContent>
+
+            <TabsContent value="resume" className="mt-4 sm:mt-6 min-w-0 overflow-hidden">
+              <ScrollArea className="h-[400px] sm:h-[500px] md:h-[600px] rounded-lg border bg-primary/5 p-3 sm:p-4 w-full">
+                <div className="max-w-full overflow-hidden">
+                  <OptimizedResumeView optimized={optimizedResumeData} />
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="scores" className="mt-4 sm:mt-6">
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                      <Brain className="h-4 w-4" />
+                      ATS Score Comparison
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                      <div className="text-center">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">Original Score</div>
+                        <div className="text-xl sm:text-2xl font-bold">{optimized.originalScore}/100</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">New Score</div>
+                        <div className={`text-xl sm:text-2xl font-bold flex items-center justify-center gap-1 ${
+                          optimized.improved ? "text-emerald-600" : "text-amber-600"
+                        }`}>
+                          {optimized.newScore}/100
+                          {optimized.improved ? (
+                            <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5" />
+                          ) : (
+                            <TrendingDown className="h-4 w-4 sm:h-5 sm:w-5" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">Change</div>
+                        <div className={`text-xl sm:text-2xl font-bold ${
+                          optimized.scoreImprovement > 0 
+                            ? "text-emerald-600" 
+                            : optimized.scoreImprovement < 0
+                            ? "text-red-600"
+                            : "text-muted-foreground"
+                        }`}>
+                          {optimized.scoreImprovement > 0 ? "+" : ""}
+                          {optimized.scoreImprovement}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {!optimized.improved && (
+                      <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                        <p className="text-xs sm:text-sm text-amber-900 dark:text-amber-200 break-words">
+                          <strong>Note:</strong> The optimized resume did not achieve a higher ATS score than the original. 
+                          This may indicate that the resume is already well-optimized for this position, or that manual tweaking is needed.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+            </TabsContent>
+          </Tabs>
+
+          {/* Changes Made Section - Collapsible */}
+          {Array.isArray(optimized.changes) && optimized.changes.length > 0 && (
+            <>
+              <Separator className="my-6" />
+              <Collapsible open={isChangesOpen} onOpenChange={setIsChangesOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                      Summary of Changes ({optimized.changes.length})
+                    </h3>
+                    {isChangesOpen ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-4">
+                  <div className="space-y-2">
+                    {optimized.changes.map((change: any, index: number) => (
+                      <div key={index} className="rounded-lg border p-4">
+                        <div className="flex items-start gap-3">
+                          <CheckCircle2 className="h-5 w-5 text-primary mt-0.5" />
+                          <div className="flex-1">
+                            <div className="font-medium">{change.section}</div>
+                            <div className="text-sm text-muted-foreground mt-1">
+                              {change.description}
+                            </div>
+                            <Badge variant="outline" className="mt-2">
+                              {change.type?.replace(/_/g, " ") || "Change"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </>
+          )}
+
+          <Separator className="my-6" />
+
+          <div className="flex gap-4">
+            <Button 
+              size="lg" 
+              className="flex-1"
+              onClick={handleDownload}
+              disabled={isDownloading}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {isDownloading ? "Downloading..." : "Download PDF"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResumeView({ resume }: { resume: Resume }) {
+  return (
+    <div className="space-y-4 text-sm max-w-full overflow-hidden">
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Professional Summary</h4>
+        <p className="text-muted-foreground whitespace-pre-wrap break-words overflow-wrap-anywhere">
+          {resume.experience || "Not provided"}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Technical Skills</h4>
+        {resume.technicalSkillsSection ? (
+          <div className="bg-muted/50 rounded-lg p-2 sm:p-3 border max-w-full overflow-hidden">
+            <pre className="text-xs sm:text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere leading-relaxed font-sans max-w-full">
+              {resume.technicalSkillsSection}
+            </pre>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {resume.skills.map((skill: string, index: number) => (
+              <Badge key={`${skill}-${index}`} variant="secondary" className="break-words max-w-full">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Education</h4>
+        <p className="text-muted-foreground whitespace-pre-wrap break-words overflow-wrap-anywhere">
+          {resume.education || "Not provided"}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Experience</h4>
+        <p className="text-muted-foreground whitespace-pre-wrap break-words overflow-wrap-anywhere text-xs">
+          {resume.rawContent.substring(0, 1000)}...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function OptimizedResumeView({ optimized }: { optimized: any }) {
+  return (
+    <div className="space-y-4 text-sm max-w-full overflow-hidden">
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Professional Summary</h4>
+        <p className="text-muted-foreground whitespace-pre-wrap break-words overflow-wrap-anywhere">
+          {optimized.professionalSummary}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Technical Skills</h4>
+        {typeof optimized.technicalSkills === 'string' ? (
+          <div className="bg-muted/50 rounded-lg p-2 sm:p-3 border max-w-full overflow-hidden">
+            <pre className="text-xs sm:text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere leading-relaxed font-sans max-w-full">
+              {optimized.technicalSkills}
+            </pre>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {optimized.technicalSkills.map((skill: string, index: number) => (
+              <Badge key={`opt-skill-${skill}-${index}`} variant="secondary" className="break-words max-w-full">
+                {skill}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Education</h4>
+        <p className="text-muted-foreground whitespace-pre-wrap break-words overflow-wrap-anywhere">
+          {optimized.education || "Not provided"}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <h4 className="font-semibold mb-2">Relevant Experience</h4>
+        <div className="space-y-3">
+          {Array.isArray(optimized.relevantExperience) && optimized.relevantExperience.map((exp: any, index: number) => (
+            <div key={`exp-${exp.title}-${exp.company}-${index}`} className="border-l-2 border-primary/20 pl-3 min-w-0">
+              <div className="font-medium break-words">{exp.title}</div>
+              <div className="text-xs text-muted-foreground break-words">{exp.company}</div>
+              <ul className="mt-2 space-y-1 list-disc list-inside text-xs text-muted-foreground">
+                {exp.bullets?.map((bullet: string, bulletIndex: number) => (
+                  <li key={`exp-${index}-bullet-${bulletIndex}`} className="break-words">{bullet}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {optimized.projects && Array.isArray(optimized.projects) && optimized.projects.length > 0 && (
+        <div className="min-w-0">
+          <h4 className="font-semibold mb-2">Projects</h4>
+          <div className="space-y-3">
+            {optimized.projects.map((project: any, index: number) => (
+              <div key={`project-${project.name}-${index}`} className="border-l-2 border-primary/20 pl-3 min-w-0">
+                <div className="font-medium break-words">{project.name}</div>
+                <ul className="mt-2 space-y-1 list-disc list-inside text-xs text-muted-foreground">
+                  {project.bullets?.map((bullet: string, bulletIndex: number) => (
+                    <li key={`project-${index}-bullet-${bulletIndex}`} className="break-words">{bullet}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Briefcase, Settings, Activity, CheckCircle, XCircle, Clock, ScanSearch } from "lucide-react";
+import { LayoutDashboard, FileText, Briefcase, Settings, Activity, CheckCircle, XCircle, Clock, ScanSearch, FileCode, Sparkles } from "lucide-react";
 
 export interface Job {
   id: string;
@@ -144,6 +144,8 @@ export const NAV_ITEMS = [
   { label: "Job Feed", icon: Briefcase, href: "/jobs" },
   { label: "ATS Analyzer", icon: ScanSearch, href: "/ats-analyzer" },
   { label: "Resumes", icon: FileText, href: "/resumes" },
+  { label: "Parser View", icon: FileCode, href: "/resume-parser" },
+  { label: "Resume Optimizer", icon: Sparkles, href: "/resume-optimizer" },
   { label: "Activity Log", icon: Activity, href: "/activity" },
   { label: "Settings", icon: Settings, href: "/settings" },
 ];

@@ -14,7 +14,10 @@ import ATSAnalyzer from "@/pages/ATSAnalyzer";
 import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import ResumeParser from "@/pages/ResumeParser";
+import ResumeOptimizer from "@/pages/ResumeOptimizer";
 import { useAuth } from "@/hooks/use-auth";
+import { OptimizationProvider } from "@/contexts/OptimizationContext";
 
 function AuthRedirect() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -64,6 +67,16 @@ function Router() {
           <Resumes />
         </ProtectedRoute>
       </Route>
+      <Route path="/resume-parser">
+        <ProtectedRoute>
+          <ResumeParser />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/resume-optimizer">
+        <ProtectedRoute>
+          <ResumeOptimizer />
+        </ProtectedRoute>
+      </Route>
       <Route path="/settings">
         <ProtectedRoute>
           <Settings />
@@ -87,10 +100,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <OptimizationProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </OptimizationProvider>
     </QueryClientProvider>
   );
 }

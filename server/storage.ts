@@ -11,12 +11,15 @@ import {
   type InsertSetting,
   type ActivityLog,
   type InsertActivityLog,
+  type OptimizedResume,
+  type InsertOptimizedResume,
   users,
   resumes,
   jobs,
   atsAnalyses,
   settings,
   activityLogs,
+  optimizedResumes,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, or, isNull, asc, lt } from "drizzle-orm";
@@ -61,6 +64,12 @@ export interface IStorage {
   // Activity Logs
   createActivityLog(log: InsertActivityLog, userId: string): Promise<ActivityLog>;
   getActivityLogs(userId: string, limit?: number): Promise<ActivityLog[]>;
+
+  // Optimized Resumes
+  createOptimizedResume(resume: InsertOptimizedResume, userId: string): Promise<OptimizedResume>;
+  getOptimizedResumes(userId: string, jobId?: number): Promise<OptimizedResume[]>;
+  getOptimizedResume(id: number, userId: string): Promise<OptimizedResume | undefined>;
+  deleteOptimizedResume(id: number, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -235,11 +244,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getATSAnalysisByJobId(jobId: number, userId: string): Promise<ATSAnalysis | undefined> {
+    // Get the ORIGINAL analysis for this job
+    // Optimized resume analyses should NOT have jobId set (they're linked via optimized_resumes.optimizedAnalysisId)
+    // So we can safely get the most recent analysis with this jobId (which will be the original)
     const [analysis] = await db
       .select()
       .from(atsAnalyses)
       .where(and(eq(atsAnalyses.jobId, jobId), eq(atsAnalyses.userId, userId)))
-      .orderBy(desc(atsAnalyses.createdAt))
+      .orderBy(desc(atsAnalyses.createdAt)) // Get the most recent original analysis
       .limit(1);
     return analysis || undefined;
   }
@@ -324,6 +336,39 @@ export class DatabaseStorage implements IStorage {
 
   async getAllActivityLogs(limit: number = 100): Promise<ActivityLog[]> {
     return await db.select().from(activityLogs).orderBy(desc(activityLogs.createdAt)).limit(limit);
+  }
+
+  // Optimized Resumes
+  async createOptimizedResume(resume: InsertOptimizedResume, userId: string): Promise<OptimizedResume> {
+    const [newResume] = await db.insert(optimizedResumes).values({ ...resume, userId }).returning();
+    return newResume;
+  }
+
+  async getOptimizedResumes(userId: string, jobId?: number): Promise<OptimizedResume[]> {
+    const conditions = [eq(optimizedResumes.userId, userId)];
+    if (jobId) {
+      conditions.push(eq(optimizedResumes.jobId, jobId));
+    }
+    return await db
+      .select()
+      .from(optimizedResumes)
+      .where(and(...conditions))
+      .orderBy(desc(optimizedResumes.createdAt));
+  }
+
+  async getOptimizedResume(id: number, userId: string): Promise<OptimizedResume | undefined> {
+    const [resume] = await db
+      .select()
+      .from(optimizedResumes)
+      .where(and(eq(optimizedResumes.id, id), eq(optimizedResumes.userId, userId)));
+    return resume || undefined;
+  }
+
+  async deleteOptimizedResume(id: number, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(optimizedResumes)
+      .where(and(eq(optimizedResumes.id, id), eq(optimizedResumes.userId, userId)));
+    return result.rowCount ? result.rowCount > 0 : false;
   }
 }
 

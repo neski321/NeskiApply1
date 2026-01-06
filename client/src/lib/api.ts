@@ -534,3 +534,167 @@ export async function testDiscordWebhook(): Promise<{ success: boolean; message?
     };
   }
 }
+
+// ============ RESUME OPTIMIZER API ============
+
+export interface OptimizedResume {
+  professionalSummary: string;
+  technicalSkills: string | string[]; // Can be formatted string or array for backward compatibility
+  education: string;
+  relevantExperience: Array<{
+    title: string;
+    company: string;
+    bullets: string[];
+  }>;
+  projects: Array<{
+    name: string;
+    bullets: string[];
+  }>;
+  changes: Array<{
+    section: string;
+    type: "summary_rewritten" | "bullets_reordered" | "content_restructured";
+    description: string;
+  }>;
+}
+
+export interface OptimizeResumeResponse {
+  originalResume: Resume;
+  optimizedResume: OptimizedResume;
+  job: {
+    id: number;
+    title: string;
+    company: string;
+  };
+  atsAnalysis: {
+    id: number;
+    matchScore: number;
+    missingKeywords: string[];
+    suggestions: any;
+  } | null;
+  optimizedAnalysis: {
+    originalScore: number;
+    newScore: number;
+    scoreImprovement: number;
+    improved: boolean;
+    analysis: any | null;
+  } | null;
+  savedOptimizedResume: {
+    id: number;
+    createdAt: string;
+  } | null;
+}
+
+export interface SavedOptimizedResume {
+  id: number;
+  userId: string;
+  originalResumeId: number;
+  jobId: number;
+  atsAnalysisId: number | null;
+  optimizedAnalysisId: number | null;
+  professionalSummary: string;
+  technicalSkills: string[];
+  education: string | null;
+  relevantExperience: any;
+  projects: any | null;
+  changes: any;
+  originalScore: number;
+  newScore: number;
+  scoreImprovement: number;
+  improved: boolean;
+  createdAt: string;
+  originalResume?: { id: number; name: string } | null;
+  job?: { id: number; title: string; company: string } | null;
+}
+
+export async function optimizeResume(resumeId: number, jobId: number, atsAnalysisId?: number): Promise<OptimizeResumeResponse> {
+  const response = await fetch(`/api/resumes/${resumeId}/optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ jobId, ...(atsAnalysisId && { atsAnalysisId }) }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to optimize resume");
+  }
+
+  return response.json();
+}
+
+// Optimize resume for a job - automatically finds best resume from ATS analysis
+export async function optimizeResumeForJob(jobId: number): Promise<OptimizeResumeResponse> {
+  const response = await fetch(`/api/jobs/${jobId}/optimize-resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to optimize resume");
+  }
+
+  return response.json();
+}
+
+// ============ OPTIMIZED RESUMES API ============
+
+export async function getOptimizedResumes(jobId?: number): Promise<SavedOptimizedResume[]> {
+  const params = new URLSearchParams();
+  if (jobId) params.append("jobId", jobId.toString());
+  
+  const response = await fetch(`/api/optimized-resumes?${params}`, {
+    credentials: "include",
+  });
+  
+  if (!response.ok) throw new Error("Failed to fetch optimized resumes");
+  return response.json();
+}
+
+export async function getOptimizedResume(id: number): Promise<SavedOptimizedResume> {
+  const response = await fetch(`/api/optimized-resumes/${id}`, {
+    credentials: "include",
+  });
+  
+  if (!response.ok) throw new Error("Failed to fetch optimized resume");
+  return response.json();
+}
+
+export async function deleteOptimizedResume(id: number): Promise<void> {
+  const response = await fetch(`/api/optimized-resumes/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  
+  if (!response.ok) throw new Error("Failed to delete optimized resume");
+}
+
+export async function downloadOptimizedResume(id: number): Promise<void> {
+  const response = await fetch(`/api/optimized-resumes/${id}/download`, {
+    method: "GET",
+    credentials: "include",
+  });
+  
+  if (!response.ok) throw new Error("Failed to download optimized resume");
+  
+  // Get the filename from the Content-Disposition header
+  const contentDisposition = response.headers.get("Content-Disposition");
+  const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+  const filename = filenameMatch ? filenameMatch[1] : `optimized-resume-${Date.now()}.pdf`;
+  
+  // Create a blob from the response
+  const blob = await response.blob();
+  
+  // Create a temporary URL and trigger download
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  
+  // Cleanup
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
