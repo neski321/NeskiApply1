@@ -48,7 +48,7 @@ export default function Settings() {
     discordNotifications: true,
     discordNotificationThreshold: "70",
     highPriorityMatchThreshold: "80",
-    jobScrapingLimit: "5",
+    jobScrapingLimit: "10",
     cronEnabled: false,
     cronScheduleTime: "09:00",
     cronTimezone: "America/Toronto",
@@ -59,6 +59,9 @@ export default function Settings() {
     aiProviderPreference: "auto",
     perplexityApiKey: "",
     geminiApiKey: "",
+    openrouterApiKey: "",
+    openrouterModel: "meta-llama/llama-3.2-3b-instruct:free",
+    resumeOptimizationProvider: "perplexity",
     jsearchApiKey: "",
     jsearchRapidApiHost: "",
     jsearchLanguage: "",
@@ -145,7 +148,7 @@ export default function Settings() {
         discordNotifications: settingsMap.discord_notifications === "true",
         discordNotificationThreshold: settingsMap.discord_notification_threshold || "70",
         highPriorityMatchThreshold: settingsMap.high_priority_match_threshold || "80",
-        jobScrapingLimit: settingsMap.job_scraping_limit || "5",
+        jobScrapingLimit: settingsMap.job_scraping_limit || "10",
         cronEnabled: settingsMap.cron_enabled === "true",
         cronScheduleTime: settingsMap.cron_schedule_time || "09:00",
         cronTimezone: settingsMap.cron_timezone || "America/Toronto",
@@ -156,6 +159,9 @@ export default function Settings() {
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
         perplexityApiKey: settingsMap.perplexity_api_key || "",
         geminiApiKey: settingsMap.gemini_api_key || "",
+        openrouterApiKey: settingsMap.openrouter_api_key || "",
+        openrouterModel: settingsMap.openrouter_model || "meta-llama/llama-3.2-3b-instruct:free",
+        resumeOptimizationProvider: settingsMap.resume_optimization_provider || "gemini",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
         jsearchRapidApiHost: settingsMap.jsearch_rapidapi_host || "",
         jsearchLanguage: settingsMap.jsearch_language || "",
@@ -296,6 +302,9 @@ export default function Settings() {
       ai_provider_preference: formData.aiProviderPreference,
       perplexity_api_key: formData.perplexityApiKey,
       gemini_api_key: formData.geminiApiKey,
+      openrouter_api_key: formData.openrouterApiKey,
+      openrouter_model: formData.openrouterModel,
+      resume_optimization_provider: formData.resumeOptimizationProvider,
       jsearch_api_key: formData.jsearchApiKey,
       jsearch_rapidapi_host: formData.jsearchRapidApiHost,
       jsearch_language: formData.jsearchLanguage,
@@ -633,16 +642,19 @@ export default function Settings() {
                     onChange={(e) => setFormData({ ...formData, aiProviderPreference: e.target.value })}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <option value="auto">Auto (Perplexity → Gemini fallback)</option>
+                    <option value="auto">Auto (Perplexity → OpenRouter → Gemini)</option>
                     <option value="perplexity">Perplexity Only</option>
+                    <option value="openrouter">OpenRouter Only</option>
                     <option value="gemini">Gemini Only</option>
                   </select>
                   <p className="text-xs text-muted-foreground">
                     {formData.aiProviderPreference === "auto" 
-                      ? "Automatically uses Perplexity first, falls back to Gemini if Perplexity fails."
+                      ? "Automatically uses Perplexity first, falls back to OpenRouter then Gemini if needed."
                       : formData.aiProviderPreference === "perplexity"
-                      ? "Always uses Perplexity. No fallback to Gemini."
-                      : "Always uses Gemini. No fallback to Perplexity."}
+                      ? "Always uses Perplexity. No fallback to other providers."
+                      : formData.aiProviderPreference === "openrouter"
+                      ? "Always uses OpenRouter. No fallback to other providers."
+                      : "Always uses Gemini. No fallback to other providers."}
                   </p>
                 </div>
 
@@ -715,6 +727,92 @@ export default function Settings() {
                     </p>
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-border/50"></div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    OpenRouter API Key
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Access 100+ AI Models</span>
+                  </Label>
+                  <Input 
+                    type="password" 
+                    placeholder="Enter your OpenRouter API key" 
+                    value={formData.openrouterApiKey}
+                    onChange={(e) => setFormData({ ...formData, openrouterApiKey: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    OpenRouter provides access to 100+ AI models including Claude, GPT-4, Llama, and more. Get your API key from{" "}
+                    <a 
+                      href="https://openrouter.ai/keys" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-primary underline hover:text-primary/80"
+                    >
+                      OpenRouter API Keys
+                    </a>
+                    . Many free models available (look for <code className="bg-muted px-1 py-0.5 rounded text-[10px]">:free</code> suffix).
+                  </p>
+                </div>
+
+                {formData.openrouterApiKey && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      OpenRouter Model
+                      <span className="text-[10px] font-normal text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded font-semibold">FREE MODELS ONLY</span>
+                    </Label>
+                    <select
+                      value={formData.openrouterModel}
+                      onChange={(e) => setFormData({ ...formData, openrouterModel: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="meta-llama/llama-3.2-3b-instruct:free">⚡ Llama 3.2 3B - Fastest</option>
+                      <option value="meta-llama/llama-3.2-1b-instruct:free">⚡ Llama 3.2 1B - Ultra Fast</option>
+                      <option value="google/gemma-2-9b-it:free">⚖️ Gemma 2 9B - Balanced</option>
+                      <option value="mistralai/mistral-7b-instruct:free">🎯 Mistral 7B - High Quality</option>
+                      <option value="qwen/qwen-2-7b-instruct:free">🔬 Qwen 2 7B - Experimental</option>
+                    </select>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
+                      <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        ⚠️ Important: FREE Models Only (Not Available in Direct APIs)
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        These models aren't available through direct APIs (no Gemini/Perplexity duplicates). All end with <code className="bg-muted px-1 py-0.5 rounded text-[10px]">:free</code> and are 100% free.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Strict Limits:</strong> 50 requests/day (enforced). Usage is blocked immediately when limit is reached.
+                      </p>
+                      <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                        🔒 App will automatically refuse requests once daily limit is hit - no overages possible!
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-border/50"></div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Resume Optimization AI Provider
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">For Resume Optimizer</span>
+                  </Label>
+                  <select
+                    value={formData.resumeOptimizationProvider}
+                    onChange={(e) => setFormData({ ...formData, resumeOptimizationProvider: e.target.value })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="gemini">Gemini (Recommended)</option>
+                    <option value="perplexity">Perplexity</option>
+                    <option value="openrouter">OpenRouter</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {formData.resumeOptimizationProvider === "gemini" 
+                      ? "Uses Google Gemini AI for resume optimization. Best for creative restructuring and natural language generation."
+                      : formData.resumeOptimizationProvider === "perplexity" 
+                      ? "Uses Perplexity AI for resume optimization. Best for accurate ATS analysis and keyword matching."
+                      : "Uses OpenRouter for resume optimization. Provides access to multiple AI models for more flexibility."}
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
@@ -741,7 +839,7 @@ export default function Settings() {
                     <a href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noopener noreferrer" className="text-primary underline">
                       RapidAPI JSearch
                     </a>
-                    . Limited to 5 jobs per day to manage API credits.
+                    . Limited to <strong>10 jobs per day</strong> to manage API credits.
                   </p>
                 </div>
 

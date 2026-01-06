@@ -777,7 +777,9 @@ export async function registerRoutes(
         matchScore: analysisResult.matchScore,
         missingKeywords: analysisResult.missingKeywords || [],
         suggestions: analysisResult.suggestions || [],
-        resumeComparisons: analysisResult.resumeComparisons || []
+        resumeComparisons: analysisResult.resumeComparisons || [],
+        aiProvider: provider || undefined,
+        aiModel: aiResult.model || undefined
       }, userId);
       
       // If jobId was provided, update the job's match score and matched resume

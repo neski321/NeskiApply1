@@ -55,7 +55,7 @@ export async function analyzeOptimizedResume(
     
     const optimizedResumeContent = `
 Professional Summary:
-${optimizedResume.professionalSummary}
+${optimizedResume.professionalSummary || "Not provided"}
 
 Technical Skills:
 ${technicalSkillsText}
@@ -64,15 +64,21 @@ Education:
 ${optimizedResume.education || "Not provided"}
 
 Relevant Experience:
-${optimizedResume.relevantExperience.map(exp => 
-  `${exp.title} at ${exp.company}\n${exp.bullets.map(b => `  • ${b}`).join("\n")}`
-).join("\n\n")}
+${Array.isArray(optimizedResume.relevantExperience) && optimizedResume.relevantExperience.length > 0 
+  ? optimizedResume.relevantExperience.map(exp => 
+      exp && exp.title && exp.company && Array.isArray(exp.bullets)
+        ? `${exp.title} at ${exp.company}\n${exp.bullets.map(b => `  • ${b}`).join("\n")}`
+        : ""
+    ).filter(Boolean).join("\n\n")
+  : "Not provided"}
 
-${optimizedResume.projects && optimizedResume.projects.length > 0 ? `
+${optimizedResume.projects && Array.isArray(optimizedResume.projects) && optimizedResume.projects.length > 0 ? `
 Projects:
 ${optimizedResume.projects.map(proj => 
-  `${proj.name}\n${proj.bullets.map(b => `  • ${b}`).join("\n")}`
-).join("\n\n")}` : ""}
+  proj && proj.name && Array.isArray(proj.bullets)
+    ? `${proj.name}\n${proj.bullets.map(b => `  • ${b}`).join("\n")}`
+    : ""
+).filter(Boolean).join("\n\n")}` : ""}
 `;
 
     // Get all resumes to include in comparison
@@ -394,12 +400,16 @@ Return ONLY valid JSON, no markdown, no additional text.`;
     { role: "user" as const, content: userPrompt },
   ];
 
-  // Use Gemini specifically for this task (as requested)
-  // Model parameter is not used for Gemini, but we pass it for consistency
-  const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, "gemini");
+  // Get user's preference for resume optimization AI provider
+  const providerSetting = await storage.getSetting("resume_optimization_provider", userId);
+  const provider = (providerSetting?.value as "perplexity" | "openrouter" | "gemini") || "gemini"; // Default to Gemini
+  
+  // Use the user's preferred AI provider for resume optimization
+  const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, provider);
 
   if (!aiResult) {
-    throw new Error("Failed to get response from Gemini AI. Please check your API key.");
+    const providerName = provider === "perplexity" ? "Perplexity" : provider === "openrouter" ? "OpenRouter" : "Gemini";
+    throw new Error(`Failed to get response from ${providerName} AI. Please check your API key and settings.`);
   }
 
   // Parse the JSON response

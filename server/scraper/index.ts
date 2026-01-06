@@ -49,9 +49,9 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
     userId,
   } = options;
   
-  // Get job scraping limit from settings, default to 5 if not provided
+  // Get job scraping limit from settings, default to 10 if not provided
   const jobScrapingLimitSetting = await storage.getSetting("job_scraping_limit", userId);
-  const defaultLimit = jobScrapingLimitSetting?.value ? parseInt(jobScrapingLimitSetting.value, 10) : 5;
+  const defaultLimit = jobScrapingLimitSetting?.value ? parseInt(jobScrapingLimitSetting.value, 10) : 10;
   const effectiveLimit = limit !== undefined ? limit : defaultLimit;
   
   // Use effective limit (capped at 500 to stay within API limits)

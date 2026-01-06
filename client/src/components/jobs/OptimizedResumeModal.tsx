@@ -24,8 +24,13 @@ export function OptimizedResumeModal({ open, onOpenChange, result }: OptimizedRe
   const [isDownloading, setIsDownloading] = useState(false);
   const { toast } = useToast();
 
+  // Validate result data before rendering
+  if (!result || !result.job || !result.originalResume || !result.optimizedResume) {
+    return null; // Don't render if data is invalid
+  }
+
   const handleDownload = async () => {
-    if (!result.savedOptimizedResume) {
+    if (!result.savedOptimizedResume?.id) {
       toast({
         title: "Cannot download",
         description: "This resume hasn't been saved yet.",
@@ -60,16 +65,16 @@ export function OptimizedResumeModal({ open, onOpenChange, result }: OptimizedRe
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-xl sm:text-2xl">Optimized Resume</DialogTitle>
               <DialogDescription className="sr-only">
-                View your optimized resume for {result.job.title} at {result.job.company}
+                View your optimized resume for {result.job?.title || "this job"} at {result.job?.company || "this company"}
               </DialogDescription>
               <div className="mt-2 space-y-1">
                 <div className="text-xs sm:text-sm text-muted-foreground">
-                  <span className="font-medium">Job:</span> {result.job.title} at {result.job.company}
+                  <span className="font-medium">Job:</span> {result.job?.title || "Unknown"} at {result.job?.company || "Unknown"}
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <FileText className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="text-xs truncate">
-                    <span className="font-medium">Original Resume:</span> {result.originalResume.name}
+                    <span className="font-medium">Original Resume:</span> {result.originalResume?.name || "Unknown Resume"}
                   </span>
                 </div>
                 {result.atsAnalysis && (
@@ -282,11 +287,15 @@ function ResumeView({ resume }: { resume: any }) {
       <div>
         <h4 className="font-semibold mb-2">Technical Skills</h4>
         <div className="flex flex-wrap gap-2">
-          {resume.skills.map((skill: string, index: number) => (
-            <Badge key={`resume-skill-${skill}-${index}`} variant="secondary">
-              {skill}
-            </Badge>
-          ))}
+          {resume.skills && Array.isArray(resume.skills) && resume.skills.length > 0 ? (
+            resume.skills.map((skill: string, index: number) => (
+              <Badge key={`resume-skill-${skill}-${index}`} variant="secondary">
+                {skill}
+              </Badge>
+            ))
+          ) : (
+            <p className="text-muted-foreground text-sm">No skills listed</p>
+          )}
         </div>
       </div>
 

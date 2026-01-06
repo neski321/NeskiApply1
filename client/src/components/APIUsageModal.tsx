@@ -85,7 +85,17 @@ export function APIUsageModal({
       borderColor: "border-blue-500/20",
       usage: apiUsage.providers.gemini,
       type: "daily" as const,
-      description: "Google Gemini AI for job analysis",
+      description: "Google Gemini AI for resume optimization and job analysis",
+    },
+    {
+      name: "OpenRouter",
+      icon: Brain,
+      color: "text-cyan-500",
+      bgColor: "bg-cyan-500/10",
+      borderColor: "border-cyan-500/20",
+      usage: apiUsage.providers.openrouter,
+      type: "daily" as const,
+      description: "Multi-model AI gateway for flexible AI access",
     },
     {
       name: "JSearch",

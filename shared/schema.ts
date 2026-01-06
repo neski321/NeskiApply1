@@ -89,6 +89,8 @@ export const atsAnalyses = pgTable("ats_analyses", {
   missingKeywords: text("missing_keywords").array().notNull(),
   suggestions: jsonb("suggestions").notNull(),
   resumeComparisons: jsonb("resume_comparisons").notNull(),
+  aiProvider: text("ai_provider"), // Track which AI was used (perplexity, gemini, openrouter)
+  aiModel: text("ai_model"), // Track specific model used (for OpenRouter)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

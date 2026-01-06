@@ -419,6 +419,7 @@ export interface APIUsage {
   providers: {
     perplexity: ProviderUsage;
     gemini: ProviderUsage;
+    openrouter: ProviderUsage;
     jsearch: JSearchUsage;
     n8n: N8nUsage;
   };

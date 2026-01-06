@@ -8,6 +8,9 @@ const PERPLEXITY_DAILY_LIMIT = 200;
 const PERPLEXITY_MINUTE_LIMIT = 5;
 const GEMINI_DAILY_LIMIT = 200; // Assuming similar limit
 const GEMINI_MINUTE_LIMIT = 5;
+const OPENROUTER_DAILY_LIMIT = 50; // Free tier strict limit (50 requests/day)
+const OPENROUTER_MINUTE_LIMIT = 20; // OpenRouter rate limit (20 requests/minute)
+const JSEARCH_DAILY_LIMIT = 10; // User's limit: 10 jobs per day
 const JSEARCH_MONTHLY_LIMIT = 200; // Basic plan: 200 requests/month (hard limit)
 const JSEARCH_HOURLY_LIMIT = 1000; // Rate limit: 1000 requests/hour
 const N8N_MONTHLY_LIMIT = 1000;
@@ -41,6 +44,7 @@ interface APIUsage {
   providers: {
     perplexity: ProviderUsage;
     gemini: ProviderUsage;
+    openrouter: ProviderUsage;
     jsearch: ProviderUsage;
     n8n: {
       monthlyCount: number;
@@ -91,6 +95,15 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       if (log.metadata && typeof log.metadata === 'object') {
         return log.metadata.provider === "gemini" || 
                (log.metadata.apiCall && log.message?.toLowerCase().includes("gemini"));
+      }
+      return false;
+    });
+    
+    // Count OpenRouter API calls
+    const openrouterLogs = todayLogs.filter(log => {
+      if (log.metadata && typeof log.metadata === 'object') {
+        return log.metadata.provider === "openrouter" || 
+               (log.metadata.apiCall && log.message?.toLowerCase().includes("openrouter"));
       }
       return false;
     });
@@ -182,6 +195,10 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       return logDate >= oneMinuteAgo;
     });
     const geminiRecent = geminiLogs.filter(log => {
+      const logDate = new Date(log.createdAt);
+      return logDate >= oneMinuteAgo;
+    });
+    const openrouterRecent = openrouterLogs.filter(log => {
       const logDate = new Date(log.createdAt);
       return logDate >= oneMinuteAgo;
     });
@@ -312,6 +329,7 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
     // Calculate usage percentages with precision (for display) and rounded (for badge)
     const perplexityPercentage = Math.min(100, (perplexityLogs.length / PERPLEXITY_DAILY_LIMIT) * 100);
     const geminiPercentage = Math.min(100, (geminiLogs.length / GEMINI_DAILY_LIMIT) * 100);
+    const openrouterPercentage = Math.min(100, (openrouterLogs.length / OPENROUTER_DAILY_LIMIT) * 100);
     const jsearchPercentage = Math.min(100, (jsearchMonthlyCount / JSEARCH_MONTHLY_LIMIT) * 100);
     const n8nPercentage = Math.min(100, (n8nMonthlyCount / N8N_MONTHLY_LIMIT) * 100);
     
@@ -329,6 +347,14 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       usagePercentage: Math.round(geminiPercentage), // Rounded for badge display
       minuteCount: geminiRecent.length,
       minuteLimit: GEMINI_MINUTE_LIMIT,
+    };
+    
+    const openrouterUsage: ProviderUsage = {
+      dailyCount: openrouterLogs.length,
+      dailyLimit: OPENROUTER_DAILY_LIMIT,
+      usagePercentage: Math.round(openrouterPercentage), // Rounded for badge display
+      minuteCount: openrouterRecent.length,
+      minuteLimit: OPENROUTER_MINUTE_LIMIT,
     };
     
     const jsearchUsage: JSearchUsage = {
@@ -361,6 +387,7 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       providers: {
         perplexity: perplexityUsage,
         gemini: geminiUsage,
+        openrouter: openrouterUsage,
         jsearch: jsearchUsage,
         n8n: n8nUsage,
       },
@@ -385,6 +412,7 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       providers: {
         perplexity: defaultProviderUsage,
         gemini: defaultProviderUsage,
+        openrouter: defaultProviderUsage,
         jsearch: {
           monthlyCount: 0,
           monthlyLimit: JSEARCH_MONTHLY_LIMIT,
