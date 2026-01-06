@@ -2,6 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { SkillGapAnalysisModal } from "@/components/SkillGapAnalysisModal";
+import { UnscannedJobsNotification } from "@/components/UnscannedJobsNotification";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCircle, Clock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -151,6 +152,9 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="flex flex-col gap-8">
+        {/* Unscanned Jobs Notification */}
+        <UnscannedJobsNotification />
+        
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0 flex-1">

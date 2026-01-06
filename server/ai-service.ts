@@ -67,7 +67,7 @@ export async function callAIWithFallback(
     return null;
   }
 
-  // Auto mode: Try Perplexity first, then OpenRouter, then Gemini if both fail
+  // Auto mode: Try Perplexity first, then Gemini, then OpenRouter if both fail
   const perplexityResult = await tryPerplexity(messages, model, userId);
   if (perplexityResult) {
     // Log API usage
@@ -76,8 +76,18 @@ export async function callAIWithFallback(
     return { content: perplexityResult, provider: "perplexity", model };
   }
 
-  // Fallback to OpenRouter
-  console.log("Perplexity failed, trying OpenRouter...");
+  // Fallback to Gemini (preferred over OpenRouter)
+  console.log("Perplexity failed, falling back to Gemini...");
+  const geminiResult = await tryGemini(messages, userId);
+  if (geminiResult) {
+    // Log API usage
+    const { logAPICall } = await import("./api-usage");
+    await logAPICall("Gemini API", "gemini", { model: "gemini-2.5-flash" }, userId);
+    return { content: geminiResult, provider: "gemini", model: "gemini-2.5-flash" };
+  }
+
+  // Final fallback to OpenRouter
+  console.log("Gemini failed, trying OpenRouter...");
   const modelSetting = await storage.getSetting("openrouter_model", userId);
   const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free"; // Default to free model
   const openrouterResult = await tryOpenRouter(messages, model, userId);
@@ -85,16 +95,6 @@ export async function callAIWithFallback(
     const { logAPICall } = await import("./api-usage");
     await logAPICall("OpenRouter API", "openrouter", { model: selectedModel }, userId);
     return { content: openrouterResult, provider: "openrouter", model: selectedModel };
-  }
-
-  // Final fallback to Gemini
-  console.log("OpenRouter failed, falling back to Gemini...");
-  const geminiResult = await tryGemini(messages, userId);
-  if (geminiResult) {
-    // Log API usage
-    const { logAPICall } = await import("./api-usage");
-    await logAPICall("Gemini API", "gemini", { model: "gemini-2.5-flash" }, userId);
-    return { content: geminiResult, provider: "gemini", model: "gemini-2.5-flash" };
   }
 
   return null;
