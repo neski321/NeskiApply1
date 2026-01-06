@@ -25,6 +25,7 @@ async function loadMammoth() {
 export interface ParsedResume {
   rawContent: string;
   skills: string[];
+  technicalSkillsSection?: string; // Formatted technical skills section
   experience: string;
   education: string;
 }
@@ -76,7 +77,74 @@ export async function parseResumeFile(filePath: string): Promise<string> {
 }
 
 /**
- * Extract skills from resume text using common patterns
+ * Extract technical skills section with original formatting preserved
+ * Preserves category headings, comma-separated lists, and line breaks
+ * Example format:
+ * Programming Languages: Python, C/C++, JavaScript
+ * Backend Frameworks & Tools: Laravel, React, Django
+ */
+export function extractTechnicalSkillsSection(text: string): string {
+  // Look for "Technical Skills:" or "Skills:" sections with more flexible matching
+  // Try to capture the entire section until the next major section
+  const skillsSectionPatterns = [
+    // Pattern 1: "Technical Skills:" followed by content until next section or end
+    // This pattern captures everything including category headings and formatted lists
+    /(?:technical\s+skills|skills|technologies|tools|technical\s+expertise|core\s+competencies)[:\s]*\n?([\s\S]*?)(?=\n\s*(?:experience|education|projects|work\s+experience|employment|professional|summary|objective|contact|references|achievements|certifications|publications|volunteer|activities|interests|hobbies|language|languages|awards|honors|$))/i,
+    // Pattern 2: More lenient - capture after header, looking for category patterns
+    /(?:technical\s+skills|skills|technologies|tools)[:\s]*\n([\s\S]{0,2000})/i,
+  ];
+  
+  for (const pattern of skillsSectionPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      let skillsText = match[1].trim();
+      
+      // Preserve the structure:
+      // - Category headings (lines ending with colon, e.g., "Programming Languages:")
+      // - Comma-separated lists on the same line or following line
+      // - Line breaks between categories
+      
+      // Clean up only excessive whitespace, but preserve structure
+      // Replace multiple spaces/tabs with single space, but keep newlines
+      skillsText = skillsText.replace(/[ \t]+/g, ' ');
+      // Remove trailing spaces from lines (but keep the line)
+      skillsText = skillsText.replace(/[ \t]+$/gm, '');
+      // Remove excessive blank lines (more than 2 consecutive), but keep single blank lines
+      skillsText = skillsText.replace(/\n{3,}/g, '\n\n');
+      
+      // Ensure category headings (lines ending with colon) are properly formatted
+      // If a colon is followed immediately by text on the same line, that's fine (category: skills)
+      // If a colon is at the end of a line, the skills should be on the next line
+      // This preserves formats like:
+      // "Programming Languages: Python, JavaScript" (on same line)
+      // "Programming Languages:\nPython, JavaScript" (on next line)
+      
+      // Limit length to prevent too much content, but try to end at a natural break
+      if (skillsText.length > 2000) {
+        // Try to cut at a line break or category boundary
+        const cutPoint = skillsText.lastIndexOf('\n', 2000);
+        if (cutPoint > 1500) {
+          skillsText = skillsText.substring(0, cutPoint).trim();
+        } else {
+          skillsText = skillsText.substring(0, 2000).trim();
+        }
+        // Don't add "..." if we cut at a natural boundary
+        if (!skillsText.endsWith('...')) {
+          skillsText += '...';
+        }
+      }
+      
+      if (skillsText.length > 10) {
+        return skillsText;
+      }
+    }
+  }
+  
+  return "";
+}
+
+/**
+ * Extract skills from resume text using common patterns (for backward compatibility)
  */
 export function extractSkills(text: string): string[] {
   const skills: string[] = [];
@@ -196,6 +264,7 @@ export function extractEducation(text: string): string {
 export async function parseResume(filePath: string, fileName: string): Promise<{
   rawContent: string;
   skills: string[];
+  technicalSkillsSection?: string;
   experience: string;
   education: string;
   fileName: string;
@@ -209,12 +278,14 @@ export async function parseResume(filePath: string, fileName: string): Promise<{
   
   // Extract structured data
   const skills = extractSkills(rawContent);
+  const technicalSkillsSection = extractTechnicalSkillsSection(rawContent);
   const experience = extractExperience(rawContent);
   const education = extractEducation(rawContent);
   
   return {
     rawContent: rawContent.trim(),
     skills,
+    technicalSkillsSection: technicalSkillsSection || undefined,
     experience,
     education,
     fileName,

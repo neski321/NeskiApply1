@@ -25,6 +25,7 @@ export const resumes = pgTable("resumes", {
   name: text("name").notNull(),
   fileName: text("file_name").notNull(),
   skills: text("skills").array().notNull(),
+  technicalSkillsSection: text("technical_skills_section"),
   experience: text("experience").notNull(),
   education: text("education"),
   rawContent: text("raw_content").notNull(),
@@ -57,6 +58,7 @@ export const jobs = pgTable("jobs", {
   url: text("url"),
   status: text("status").notNull().default("pending"),
   isApplied: boolean("is_applied").default(false),
+  appliedAt: timestamp("applied_at"),
   gotInterview: boolean("got_interview").default(false),
   rejected: boolean("rejected").default(false),
   matchScore: integer("match_score"),
@@ -132,6 +134,35 @@ export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({
 
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
+
+// Optimized Resumes table
+export const optimizedResumes = pgTable("optimized_resumes", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  originalResumeId: integer("original_resume_id").notNull().references(() => resumes.id, { onDelete: "cascade" }),
+  jobId: integer("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  atsAnalysisId: integer("ats_analysis_id").references(() => atsAnalyses.id, { onDelete: "set null" }),
+  optimizedAnalysisId: integer("optimized_analysis_id").references(() => atsAnalyses.id, { onDelete: "set null" }),
+  professionalSummary: text("professional_summary").notNull(),
+  technicalSkills: text("technical_skills").notNull(), // Changed from array to text to preserve formatting
+  education: text("education"),
+  relevantExperience: jsonb("relevant_experience").notNull(),
+  projects: jsonb("projects"),
+  changes: jsonb("changes").notNull(),
+  originalScore: integer("original_score").notNull(),
+  newScore: integer("new_score").notNull(),
+  scoreImprovement: integer("score_improvement").notNull(),
+  improved: boolean("improved").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertOptimizedResumeSchema = createInsertSchema(optimizedResumes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertOptimizedResume = z.infer<typeof insertOptimizedResumeSchema>;
+export type OptimizedResume = typeof optimizedResumes.$inferSelect;
 
 // Session table (for express-session with connect-pg-simple)
 // This table stores user sessions for authentication

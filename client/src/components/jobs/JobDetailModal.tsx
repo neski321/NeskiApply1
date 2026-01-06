@@ -19,12 +19,17 @@ import {
   DollarSign,
   FileText,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Loader2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateJob, deleteJob } from "@/lib/api";
+import { updateJob, deleteJob, optimizeResumeForJob, type OptimizeResumeResponse } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
+import { OptimizedResumeModal } from "./OptimizedResumeModal";
+import { useOptimization } from "@/contexts/OptimizationContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,12 +51,23 @@ interface JobDetailModalProps {
 export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [optimizationResult, setOptimizationResult] = useState<OptimizeResumeResponse | null>(null);
+  const [showOptimizedModal, setShowOptimizedModal] = useState(false);
+  const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
 
   const updateJobMutation = useMutation({
     mutationFn: (data: Partial<Job>) => updateJob(job!.id, data),
-    onSuccess: () => {
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+      
+      // Check if there are optimized resumes when marking as applied
+      if (response.hasOptimizedResumes && response.optimizedResumesCount) {
+        setOptimizedResumesCount(response.optimizedResumesCount);
+        setShowOptimizedResumeAlert(true);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -82,14 +98,47 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
     },
   });
 
+  const { startOptimization, notifyModalClosed, completeOptimization, failOptimization } = useOptimization();
+
+  const optimizeResumeMutation = useMutation({
+    mutationFn: () => optimizeResumeForJob(job!.id),
+    onSuccess: (data) => {
+      setIsOptimizing(false);
+      setOptimizationResult(data);
+      setShowOptimizedModal(true);
+      
+      // Complete the optimization tracking
+      if (data.savedOptimizedResume) {
+        completeOptimization(data.savedOptimizedResume.id);
+      }
+      
+      toast({
+        title: "Resume optimized",
+        description: "Your resume has been optimized for this job. Review the changes below.",
+      });
+    },
+    onError: (error: Error) => {
+      setIsOptimizing(false);
+      failOptimization(error.message);
+      toast({
+        title: "Optimization failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (!job) return null;
 
   const handleToggleApplied = (checked: boolean) => {
     updateJobMutation.mutate({ isApplied: checked });
-    toast({
-      title: checked ? "Marked as applied" : "Unmarked as applied",
-      description: `"${job.title}" ${checked ? "has been marked as applied" : "is no longer marked as applied"}`,
-    });
+    // Toast will be shown after the mutation succeeds, or alert dialog if there are optimized resumes
+    if (!checked) {
+      toast({
+        title: "Unmarked as applied",
+        description: `"${job.title}" is no longer marked as applied`,
+      });
+    }
   };
 
   const handleToggleInterview = (checked: boolean) => {
@@ -124,8 +173,27 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
     window.location.href = `/ats-analyzer?jobId=${job.id}`;
   };
 
+  const handleOptimizeResume = () => {
+    // Start tracking the optimization
+    if (job) {
+      setIsOptimizing(true);
+      startOptimization(job.id, job.title, job.company);
+    }
+    optimizeResumeMutation.mutate();
+  };
+
+  // Handle modal close during optimization
+  const handleModalClose = (newOpen: boolean) => {
+    if (!newOpen && isOptimizing) {
+      // User is closing modal while optimization is running
+      notifyModalClosed();
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={handleModalClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[calc(100vw-2rem)] sm:w-full">
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
@@ -133,7 +201,10 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
               <DialogTitle className="text-xl sm:text-2xl font-bold leading-tight pr-8">
                 {job.title}
               </DialogTitle>
-              <DialogDescription className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <DialogDescription className="sr-only">
+                Job details for {job.title} at {job.company}
+              </DialogDescription>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Building2 className="h-4 w-4 flex-shrink-0" />
                   <span className="font-medium">{job.company}</span>
@@ -154,7 +225,7 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
                     <span>Scanned {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true })}</span>
                   </div>
                 )}
-              </DialogDescription>
+              </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <MatchRing score={job.matchScore || 0} size="lg" />
@@ -218,8 +289,8 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
-                    {job.tags.map(tag => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
+                    {job.tags.map((tag, index) => (
+                      <Badge key={`modal-tag-${tag}-${index}`} variant="secondary" className="text-xs">
                         {tag}
                       </Badge>
                     ))}
@@ -274,7 +345,7 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
               <CardContent>
                 <ul className="space-y-2">
                   {job.requirements.map((req, index) => (
-                    <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
+                    <li key={`req-${index}-${req.substring(0, 20)}`} className="text-sm text-muted-foreground flex items-start gap-2">
                       <span className="text-primary mt-1">•</span>
                       <span>{req}</span>
                     </li>
@@ -352,11 +423,44 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
           <Separator />
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="space-y-3">
+            {(job as any).hasOptimizedResume && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
+                <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs sm:text-sm text-purple-900 dark:text-purple-200">
+                  This job already has an optimized resume. View it in the <strong>Resumes → Optimized Resumes</strong> tab.
+                </p>
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                onClick={handleOptimizeResume}
+                className="flex-1 gap-2"
+                variant={(job as any).hasOptimizedResume ? "secondary" : "default"}
+                disabled={updateJobMutation.isPending || deleteJobMutation.isPending || optimizeResumeMutation.isPending || (job as any).hasOptimizedResume}
+              >
+                {optimizeResumeMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Optimizing...
+                  </>
+                ) : (job as any).hasOptimizedResume ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Resume Optimized
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Optimize Resume
+                  </>
+                )}
+              </Button>
             <Button
               onClick={handleViewAnalysis}
+              variant="secondary"
               className="flex-1 gap-2"
-              disabled={updateJobMutation.isPending || deleteJobMutation.isPending}
+              disabled={updateJobMutation.isPending || deleteJobMutation.isPending || optimizeResumeMutation.isPending}
             >
               <FileText className="h-4 w-4" />
               View Analysis
@@ -403,9 +507,65 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
               </AlertDialogContent>
             </AlertDialog>
           </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
+
+      {/* Optimized Resume Modal - separate dialog */}
+      {optimizationResult && (
+        <OptimizedResumeModal
+          open={showOptimizedModal}
+          onOpenChange={(open) => {
+            setShowOptimizedModal(open);
+            if (!open) {
+              setOptimizationResult(null);
+            }
+          }}
+          result={optimizationResult}
+        />
+      )}
+
+      {/* Alert Dialog for Optimized Resume Warning */}
+      <AlertDialog open={showOptimizedResumeAlert} onOpenChange={setShowOptimizedResumeAlert}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Download Your Optimized Resume
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This job has {optimizedResumesCount} optimized resume{optimizedResumesCount > 1 ? "s" : ""} attached to it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <p className="font-medium text-foreground text-sm">
+              Please make sure to download the optimized resume{optimizedResumesCount > 1 ? "s" : ""} for your records.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              The optimized resume{optimizedResumesCount > 1 ? "s" : ""} will be automatically deleted from the system 3 days after marking this job as applied.
+            </p>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setShowOptimizedResumeAlert(false);
+                onOpenChange(false);
+                window.location.href = "/resumes?tab=optimized";
+              }}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Go to Optimized Resumes
+            </Button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setShowOptimizedResumeAlert(false)}>
+              I Understand
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

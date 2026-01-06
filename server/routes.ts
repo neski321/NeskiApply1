@@ -376,6 +376,7 @@ export async function registerRoutes(
         name: name || parsed.fileName,
         fileName: req.file.originalname,
         skills: parsed.skills,
+        technicalSkillsSection: parsed.technicalSkillsSection || null,
         experience: parsed.experience,
         education: parsed.education || "",
         rawContent: parsed.rawContent,
@@ -433,7 +434,18 @@ export async function registerRoutes(
       }
       
       const jobs = await storage.getJobs(userId, filters);
-      res.json(jobs);
+      
+      // Add optimized resume indicator for each job
+      const jobsWithOptimizedInfo = await Promise.all(jobs.map(async (job) => {
+        const optimizedResumes = await storage.getOptimizedResumes(userId, job.id);
+        return {
+          ...job,
+          hasOptimizedResume: optimizedResumes.length > 0,
+          optimizedResumeCount: optimizedResumes.length
+        };
+      }));
+      
+      res.json(jobsWithOptimizedInfo);
     } catch (error) {
       console.error("Error fetching jobs:", error);
       res.status(500).json({ error: "Failed to fetch jobs" });
@@ -451,7 +463,15 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Job not found" });
       }
       
-      res.json(job);
+      // Add optimized resume indicator
+      const optimizedResumes = await storage.getOptimizedResumes(userId, id);
+      const jobWithOptimizedInfo = {
+        ...job,
+        hasOptimizedResume: optimizedResumes.length > 0,
+        optimizedResumeCount: optimizedResumes.length
+      };
+      
+      res.json(jobWithOptimizedInfo);
     } catch (error) {
       console.error("Error fetching job:", error);
       res.status(500).json({ error: "Failed to fetch job" });
@@ -482,10 +502,23 @@ export async function registerRoutes(
       const partialSchema = insertJobSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
+      // Set appliedAt timestamp when marking as applied
+      if (validatedData.isApplied === true) {
+        validatedData.appliedAt = new Date();
+      } else if (validatedData.isApplied === false) {
+        validatedData.appliedAt = null;
+      }
+      
       const job = await storage.updateJob(id, validatedData, userId);
       
       if (!job) {
         return res.status(404).json({ error: "Job not found" });
+      }
+      
+      // Check for optimized resumes if marking as applied
+      let optimizedResumes = [];
+      if (validatedData.isApplied === true) {
+        optimizedResumes = await storage.getOptimizedResumes(userId, id);
       }
       
       // Log activity for status changes
@@ -528,7 +561,14 @@ export async function registerRoutes(
         }
       }
       
-      res.json(job);
+      // Include optimized resumes info if marking as applied
+      const response: any = { ...job };
+      if (validatedData.isApplied === true && optimizedResumes.length > 0) {
+        response.hasOptimizedResumes = true;
+        response.optimizedResumesCount = optimizedResumes.length;
+      }
+      
+      res.json(response);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid request data", details: error.errors });
@@ -1697,6 +1737,358 @@ export async function registerRoutes(
         message: `Failed to test Discord webhook: ${errorMessage}`
       });
       return;
+    }
+  });
+
+  // ============ RESUME OPTIMIZER API ============
+  
+  // Optimize resume for a specific job
+  app.post("/api/resumes/:resumeId/optimize", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const resumeId = parseInt(req.params.resumeId);
+      const { jobId, atsAnalysisId } = req.body;
+
+      if (!jobId || isNaN(jobId)) {
+        return res.status(400).json({ error: "Job ID is required" });
+      }
+
+      // Get resume
+      const resume = await storage.getResume(resumeId, userId);
+      if (!resume) {
+        return res.status(404).json({ error: "Resume not found" });
+      }
+
+      // Get job
+      const job = await storage.getJob(parseInt(jobId), userId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Get ATS analysis if provided, or find the most recent one for this job
+      let atsAnalysis = null;
+      if (atsAnalysisId && !isNaN(atsAnalysisId)) {
+        atsAnalysis = await storage.getATSAnalysis(parseInt(atsAnalysisId), userId);
+        if (!atsAnalysis) {
+          return res.status(404).json({ error: "ATS Analysis not found" });
+        }
+        // Verify the analysis is for this resume and job
+        if (atsAnalysis.bestResumeId !== resumeId) {
+          return res.status(400).json({ error: "ATS Analysis is not for the selected resume" });
+        }
+        if (atsAnalysis.jobId && atsAnalysis.jobId !== parseInt(jobId)) {
+          return res.status(400).json({ error: "ATS Analysis is not for the selected job" });
+        }
+      } else {
+        // Try to find the most recent ATS analysis for this job
+        atsAnalysis = await storage.getATSAnalysisByJobId(parseInt(jobId), userId);
+        // Verify it's for the selected resume
+        if (atsAnalysis && atsAnalysis.bestResumeId !== resumeId) {
+          atsAnalysis = null; // Don't use it if it's for a different resume
+        }
+      }
+
+      // Check if Gemini API key is configured (required for optimization)
+      const geminiKey = await storage.getSetting("gemini_api_key", userId);
+      if (!geminiKey || !geminiKey.value) {
+        return res.status(400).json({ 
+          error: "Gemini API key is required for resume optimization. Please add it in Settings." 
+        });
+      }
+
+      // Import and call optimizer
+      const { optimizeResumeForJob } = await import("./resume-optimizer");
+      const optimizedResume = await optimizeResumeForJob(resume, job, userId, atsAnalysis || undefined);
+
+      // Log activity
+      const { activityLogger } = await import("./logger");
+      await activityLogger.success(
+        `Resume "${resume.name}" optimized for job "${job.title}"${atsAnalysis ? " using ATS analysis" : ""}`,
+        { resumeId: resume.id, jobId: job.id, atsAnalysisId: atsAnalysis?.id },
+        userId
+      );
+
+      res.json({
+        originalResume: resume,
+        optimizedResume,
+        job: {
+          id: job.id,
+          title: job.title,
+          company: job.company,
+        },
+        atsAnalysis: atsAnalysis ? {
+          id: atsAnalysis.id,
+          matchScore: atsAnalysis.matchScore,
+          missingKeywords: atsAnalysis.missingKeywords,
+          suggestions: atsAnalysis.suggestions,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error optimizing resume:", error);
+      res.status(500).json({ 
+        error: "Failed to optimize resume",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Optimize resume for a job - automatically finds best resume from ATS analysis
+  app.post("/api/jobs/:jobId/optimize-resume", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = parseInt(req.params.jobId);
+
+      // Get job
+      const job = await storage.getJob(jobId, userId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Check if an optimized resume already exists for this job
+      const existingOptimizedResumes = await storage.getOptimizedResumes(userId, jobId);
+      if (existingOptimizedResumes.length > 0) {
+        return res.status(400).json({ 
+          error: "An optimized resume already exists for this job. You can view it in the Resumes page under 'Optimized Resumes'.",
+          existingOptimizedResumeId: existingOptimizedResumes[0].id
+        });
+      }
+
+      // Find the most recent ATS analysis for this job
+      const atsAnalysis = await storage.getATSAnalysisByJobId(jobId, userId);
+      if (!atsAnalysis) {
+        return res.status(404).json({ 
+          error: "No ATS analysis found for this job. Please run an ATS analysis first." 
+        });
+      }
+
+      // Get the best resume from the ATS analysis
+      const resume = await storage.getResume(atsAnalysis.bestResumeId, userId);
+      if (!resume) {
+        return res.status(404).json({ error: "Best resume from ATS analysis not found" });
+      }
+
+      // Check if Gemini API key is configured (required for optimization)
+      const geminiKey = await storage.getSetting("gemini_api_key", userId);
+      if (!geminiKey || !geminiKey.value) {
+        return res.status(400).json({ 
+          error: "Gemini API key is required for resume optimization. Please add it in Settings." 
+        });
+      }
+
+      // Import and call optimizer
+      const { optimizeResumeForJob, analyzeOptimizedResume } = await import("./resume-optimizer");
+      const optimizedResume = await optimizeResumeForJob(resume, job, userId, atsAnalysis);
+
+      // Run ATS analysis on optimized resume
+      let optimizedAnalysis = null;
+      try {
+        optimizedAnalysis = await analyzeOptimizedResume(
+          resume,
+          optimizedResume,
+          job,
+          atsAnalysis.matchScore,
+          userId
+        );
+      } catch (analysisError) {
+        console.error("Error running post-optimization ATS analysis:", analysisError);
+        // Don't fail the whole request if analysis fails, but log it
+      }
+
+      // Save optimized resume to database
+      let savedOptimizedResume = null;
+      try {
+        // Ensure technicalSkills is a string (not array)
+        const technicalSkillsString = typeof optimizedResume.technicalSkills === 'string' 
+          ? optimizedResume.technicalSkills 
+          : Array.isArray(optimizedResume.technicalSkills)
+            ? optimizedResume.technicalSkills.join(", ")
+            : "";
+
+        savedOptimizedResume = await storage.createOptimizedResume({
+          originalResumeId: resume.id,
+          jobId: job.id,
+          atsAnalysisId: atsAnalysis.id,
+          optimizedAnalysisId: optimizedAnalysis?.analysis?.id || null,
+          professionalSummary: optimizedResume.professionalSummary,
+          technicalSkills: technicalSkillsString,
+          education: optimizedResume.education || null,
+          relevantExperience: Array.isArray(optimizedResume.relevantExperience) ? optimizedResume.relevantExperience : [],
+          projects: optimizedResume.projects && Array.isArray(optimizedResume.projects) ? optimizedResume.projects : null,
+          changes: Array.isArray(optimizedResume.changes) ? optimizedResume.changes : [],
+          originalScore: optimizedAnalysis?.originalScore || atsAnalysis.matchScore,
+          newScore: optimizedAnalysis?.newScore || atsAnalysis.matchScore,
+          scoreImprovement: optimizedAnalysis?.scoreImprovement || 0,
+          improved: optimizedAnalysis?.improved || false,
+        }, userId);
+      } catch (saveError) {
+        console.error("Error saving optimized resume:", saveError);
+        // Don't fail the whole request if save fails
+      }
+
+      // Log activity
+      const { activityLogger } = await import("./logger");
+      await activityLogger.success(
+        `Resume "${resume.name}" optimized for job "${job.title}" using ATS analysis`,
+        { resumeId: resume.id, jobId: job.id, atsAnalysisId: atsAnalysis.id, optimizedResumeId: savedOptimizedResume?.id },
+        userId
+      );
+
+      res.json({
+        originalResume: resume,
+        optimizedResume,
+        job: {
+          id: job.id,
+          title: job.title,
+          company: job.company,
+        },
+        atsAnalysis: {
+          id: atsAnalysis.id,
+          matchScore: atsAnalysis.matchScore,
+          missingKeywords: atsAnalysis.missingKeywords,
+          suggestions: atsAnalysis.suggestions,
+        },
+        optimizedAnalysis,
+        savedOptimizedResume: savedOptimizedResume ? {
+          id: savedOptimizedResume.id,
+          createdAt: savedOptimizedResume.createdAt,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error optimizing resume:", error);
+      res.status(500).json({ 
+        error: "Failed to optimize resume",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // ============ OPTIMIZED RESUMES API ============
+  
+  // Get all optimized resumes
+  app.get("/api/optimized-resumes", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = req.query.jobId ? parseInt(req.query.jobId as string) : undefined;
+      const optimizedResumes = await storage.getOptimizedResumes(userId, jobId);
+      
+      // Enrich with resume and job information
+      const enrichedResumes = await Promise.all(
+        optimizedResumes.map(async (optimized) => {
+          const [resume, job] = await Promise.all([
+            storage.getResume(optimized.originalResumeId, userId),
+            storage.getJob(optimized.jobId, userId),
+          ]);
+          return {
+            ...optimized,
+            originalResume: resume ? { id: resume.id, name: resume.name } : null,
+            job: job ? { id: job.id, title: job.title, company: job.company } : null,
+          };
+        })
+      );
+      
+      res.json(enrichedResumes);
+    } catch (error) {
+      console.error("Error fetching optimized resumes:", error);
+      res.status(500).json({ error: "Failed to fetch optimized resumes" });
+    }
+  });
+
+  // Get single optimized resume
+  app.get("/api/optimized-resumes/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const id = parseInt(req.params.id);
+      const optimizedResume = await storage.getOptimizedResume(id, userId);
+      
+      if (!optimizedResume) {
+        return res.status(404).json({ error: "Optimized resume not found" });
+      }
+      
+      // Enrich with resume and job information
+      const [resume, job] = await Promise.all([
+        storage.getResume(optimizedResume.originalResumeId, userId),
+        storage.getJob(optimizedResume.jobId, userId),
+      ]);
+      
+      res.json({
+        ...optimizedResume,
+        originalResume: resume ? { id: resume.id, name: resume.name } : null,
+        job: job ? { id: job.id, title: job.title, company: job.company } : null,
+      });
+    } catch (error) {
+      console.error("Error fetching optimized resume:", error);
+      res.status(500).json({ error: "Failed to fetch optimized resume" });
+    }
+  });
+
+  // Delete optimized resume
+  app.delete("/api/optimized-resumes/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteOptimizedResume(id, userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Optimized resume not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting optimized resume:", error);
+      res.status(500).json({ error: "Failed to delete optimized resume" });
+    }
+  });
+
+  // Download optimized resume as PDF
+  app.get("/api/optimized-resumes/:id/download", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const id = parseInt(req.params.id);
+      
+      // Get the optimized resume
+      const optimizedResume = await storage.getOptimizedResume(id, userId);
+      if (!optimizedResume) {
+        return res.status(404).json({ error: "Optimized resume not found" });
+      }
+      
+      // Get job and original resume info for metadata
+      const [job, originalResume] = await Promise.all([
+        storage.getJob(optimizedResume.jobId, userId),
+        storage.getResume(optimizedResume.originalResumeId, userId),
+      ]);
+      
+      if (!job || !originalResume) {
+        return res.status(404).json({ error: "Related job or resume not found" });
+      }
+      
+      // Generate PDF
+      const { generateOptimizedResumePDF } = await import("./pdf-generator");
+      const pdfStream = generateOptimizedResumePDF(
+        {
+          professionalSummary: optimizedResume.professionalSummary,
+          technicalSkills: optimizedResume.technicalSkills,
+          education: optimizedResume.education,
+          relevantExperience: optimizedResume.relevantExperience,
+          projects: optimizedResume.projects,
+        },
+        {
+          jobTitle: job.title,
+          jobCompany: job.company,
+          originalResumeName: originalResume.name,
+          optimizedDate: optimizedResume.createdAt,
+        }
+      );
+      
+      // Set response headers
+      const filename = `optimized-resume-${job.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}-${Date.now()}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      
+      // Pipe the PDF to the response
+      pdfStream.pipe(res);
+    } catch (error) {
+      console.error("Error downloading optimized resume:", error);
+      res.status(500).json({ error: "Failed to download optimized resume" });
     }
   });
 

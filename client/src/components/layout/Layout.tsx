@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { NAV_ITEMS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Bot, Menu, LogOut, Shield } from "lucide-react";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
@@ -205,6 +205,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                </Button>
              </SheetTrigger>
              <SheetContent side="left" className="w-72 p-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-y-auto">
+               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+               <SheetDescription className="sr-only">
+                 Access all pages and features of the application
+               </SheetDescription>
                <NavContent />
              </SheetContent>
            </Sheet>

@@ -6,6 +6,7 @@ import { activityLogger } from "../logger";
 let cronJob: ScheduledTask | null = null;
 let reminderCronJob: ScheduledTask | null = null;
 let cleanupCronJob: ScheduledTask | null = null;
+let optimizedResumeCleanupJob: ScheduledTask | null = null;
 // Track last reminder sent date per user to prevent duplicates
 const lastReminderSent: Map<string, string> = new Map(); // userId -> date string (YYYY-MM-DD)
 
@@ -399,6 +400,102 @@ export async function setupJobCleanup(): Promise<void> {
   });
 
   console.log("[Cron] Job cleanup cron job scheduled (runs daily at 2 AM)");
+}
+
+/**
+ * Execute cleanup of optimized resumes for jobs applied 3+ days ago
+ */
+export async function executeOptimizedResumeCleanup(userId: string): Promise<{
+  success: boolean;
+  message: string;
+  deletedCount?: number;
+}> {
+  try {
+    // Get all jobs that were applied 3+ days ago
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    
+    const allJobs = await storage.getJobs(userId, { isApplied: true });
+    const jobsToCleanup = allJobs.filter(job => {
+      if (!job.appliedAt) return false;
+      const appliedDate = new Date(job.appliedAt);
+      return appliedDate <= threeDaysAgo;
+    });
+    
+    let deletedCount = 0;
+    
+    // Delete optimized resumes for these jobs
+    for (const job of jobsToCleanup) {
+      const optimizedResumes = await storage.getOptimizedResumes(userId, job.id);
+      for (const optimizedResume of optimizedResumes) {
+        const deleted = await storage.deleteOptimizedResume(optimizedResume.id, userId);
+        if (deleted) {
+          deletedCount++;
+        }
+      }
+    }
+    
+    if (deletedCount > 0) {
+      await activityLogger.info(
+        `Cleaned up ${deletedCount} optimized resume${deletedCount === 1 ? '' : 's'} for jobs applied 3+ days ago`,
+        { deletedCount, jobsProcessed: jobsToCleanup.length },
+        userId
+      );
+    }
+
+    return {
+      success: true,
+      message: `Cleaned up ${deletedCount} optimized resume${deletedCount === 1 ? '' : 's'}`,
+      deletedCount,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Cron] Error executing optimized resume cleanup:", error);
+    await activityLogger.error(`Optimized resume cleanup failed: ${errorMessage}`, {}, userId);
+    
+    return {
+      success: false,
+      message: errorMessage,
+    };
+  }
+}
+
+/**
+ * Setup optimized resume cleanup cron job (runs daily at 3 AM)
+ */
+export async function setupOptimizedResumeCleanup(): Promise<void> {
+  // Stop existing cleanup cron job if any
+  if (optimizedResumeCleanupJob) {
+    optimizedResumeCleanupJob.stop();
+    optimizedResumeCleanupJob = null;
+  }
+
+  // Get all users
+  const allUsers = await storage.getAllUsers();
+  console.log(`[Cron] Setting up optimized resume cleanup cron job for ${allUsers.length} users`);
+
+  // Run daily at 3 AM to clean up optimized resumes for jobs applied 3+ days ago
+  optimizedResumeCleanupJob = cron.schedule("0 3 * * *", async () => {
+    try {
+      const allUsers = await storage.getAllUsers();
+
+      for (const user of allUsers) {
+        try {
+          console.log(
+            `[Cron] Running optimized resume cleanup for user ${user.id} (${user.username})`
+          );
+          await executeOptimizedResumeCleanup(user.id);
+        } catch (error) {
+          console.error(`[Cron] Error cleaning up optimized resumes for user ${user.id}:`, error);
+          // Continue with other users
+        }
+      }
+    } catch (error) {
+      console.error("[Cron] Error in optimized resume cleanup cron job:", error);
+    }
+  });
+
+  console.log("[Cron] Optimized resume cleanup cron job scheduled (runs daily at 3 AM)");
 }
 
 /**
