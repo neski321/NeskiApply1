@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,6 +73,9 @@ export default function Settings() {
     discordWebhook: "",
   });
 
+  // Store original form data to compare against
+  const originalFormDataRef = useRef<typeof formData | null>(null);
+
   const { data: settings = [] } = useQuery({
     queryKey: ["settings"],
     queryFn: getSettings,
@@ -138,7 +141,7 @@ export default function Settings() {
       // Use first country code if multiple provided (JSearch uses single country)
       const primaryCountryCode = countryCodes ? countryCodes.split(",")[0].trim().toUpperCase() : "CA";
       
-      setFormData({
+      const loadedFormData = {
         jobTitles: settingsMap.job_titles || "Software Developer Intern, Backend Developer Co-op, Entry Level Application Developer",
         countryCode: primaryCountryCode || "CA",
         datePosted: datePosted,
@@ -173,9 +176,59 @@ export default function Settings() {
         jsearchRadius: settingsMap.jsearch_radius || "",
         jsearchExcludeJobPublishers: settingsMap.jsearch_exclude_job_publishers || "",
         discordWebhook: settingsMap.discord_webhook || "",
-      });
+      };
+      
+      setFormData(loadedFormData);
+      // Store original data for comparison
+      originalFormDataRef.current = loadedFormData;
     }
   }, [settings]);
+
+  // Check if form data has changed from original
+  const hasChanges = useMemo(() => {
+    if (!originalFormDataRef.current) return false;
+    
+    const original = originalFormDataRef.current;
+    const current = formData;
+    
+    // Compare all fields
+    return (
+      original.jobTitles !== current.jobTitles ||
+      original.countryCode !== current.countryCode ||
+      original.datePosted !== current.datePosted ||
+      original.workFromHome !== current.workFromHome ||
+      original.employmentTypes !== current.employmentTypes ||
+      original.excludedKeywords !== current.excludedKeywords ||
+      original.autoApplyEnabled !== current.autoApplyEnabled ||
+      original.autoApplyThreshold !== current.autoApplyThreshold ||
+      original.discordNotifications !== current.discordNotifications ||
+      original.discordNotificationThreshold !== current.discordNotificationThreshold ||
+      original.highPriorityMatchThreshold !== current.highPriorityMatchThreshold ||
+      original.jobScrapingLimit !== current.jobScrapingLimit ||
+      original.cronEnabled !== current.cronEnabled ||
+      original.cronScheduleTime !== current.cronScheduleTime ||
+      original.cronTimezone !== current.cronTimezone ||
+      original.reminderEnabled !== current.reminderEnabled ||
+      original.reminderTime !== current.reminderTime ||
+      original.reminderMatchThreshold !== current.reminderMatchThreshold ||
+      original.headlessMode !== current.headlessMode ||
+      original.aiProviderPreference !== current.aiProviderPreference ||
+      original.perplexityApiKey !== current.perplexityApiKey ||
+      original.perplexityModel !== current.perplexityModel ||
+      original.geminiApiKey !== current.geminiApiKey ||
+      original.geminiModel !== current.geminiModel ||
+      original.openrouterApiKey !== current.openrouterApiKey ||
+      original.openrouterModel !== current.openrouterModel ||
+      original.resumeOptimizationProvider !== current.resumeOptimizationProvider ||
+      original.jsearchApiKey !== current.jsearchApiKey ||
+      original.jsearchRapidApiHost !== current.jsearchRapidApiHost ||
+      original.jsearchLanguage !== current.jsearchLanguage ||
+      original.jsearchJobRequirements !== current.jsearchJobRequirements ||
+      original.jsearchRadius !== current.jsearchRadius ||
+      original.jsearchExcludeJobPublishers !== current.jsearchExcludeJobPublishers ||
+      original.discordWebhook !== current.discordWebhook
+    );
+  }, [formData]);
 
   const saveMutation = useMutation({
     mutationFn: async (data: Record<string, string>) => {
@@ -188,6 +241,8 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       // Invalidate jobs queries so Dashboard refetches with new threshold
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      // Update original form data ref after successful save
+      originalFormDataRef.current = { ...formData };
       toast({
         title: "Settings Saved",
         description: "Your configuration has been updated successfully.",
@@ -359,7 +414,11 @@ export default function Settings() {
               <span className="hidden sm:inline">{cronMutation.isPending ? "Running..." : "Run Cron Job Now"}</span>
               <span className="sm:hidden">{cronMutation.isPending ? "Running..." : "Run Cron"}</span>
             </Button>
-            <Button className="gap-2 text-sm sm:text-base" onClick={handleSave} disabled={isSaving}>
+            <Button 
+              className="gap-2 text-sm sm:text-base" 
+              onClick={handleSave} 
+              disabled={isSaving || !hasChanges}
+            >
               {isSaving ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               {isSaving ? "Saved!" : "Save Changes"}
             </Button>

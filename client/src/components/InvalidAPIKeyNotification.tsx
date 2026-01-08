@@ -3,12 +3,29 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle, X, Settings, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs, type ActivityLogWithUser } from "@/lib/api";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
+
+const DISMISSED_STORAGE_KEY = "dismissed-api-key-errors";
 
 export function InvalidAPIKeyNotification() {
   const [, setLocation] = useLocation();
-  const [dismissed, setDismissed] = useState<string[]>([]); // Track dismissed providers
+  const [dismissed, setDismissed] = useState<Record<string, number>>({}); // Track dismissed providers with timestamps
+
+  // Load dismissed notifications from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(DISMISSED_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as Record<string, number>;
+          setDismissed(parsed);
+        }
+      } catch (error) {
+        console.error("Failed to load dismissed notifications:", error);
+      }
+    }
+  }, []);
 
   // Fetch recent activity logs to check for API key errors
   const { data: logs = [], isLoading } = useQuery<ActivityLogWithUser[]>({
@@ -79,7 +96,15 @@ export function InvalidAPIKeyNotification() {
         index === self.findIndex(e => e.provider === error.provider)
       )
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()) // Sort by most recent first
-      .filter(error => !dismissed.includes(error.id)); // Filter out dismissed
+      .filter(error => {
+        // Check if this provider was dismissed
+        const dismissedTime = dismissed[error.provider];
+        if (!dismissedTime) return true; // Not dismissed, show it
+        
+        // Only show if the error is newer than the dismissal time
+        // This allows new errors to show even if the provider was previously dismissed
+        return error.timestamp.getTime() > dismissedTime;
+      });
   }, [logs, dismissed]);
 
   // Don't show if no errors, loading, or all dismissed
@@ -92,7 +117,21 @@ export function InvalidAPIKeyNotification() {
   const providerName = latestError.provider;
 
   const handleDismiss = () => {
-    setDismissed(prev => [...prev, latestError.id]);
+    const now = Date.now();
+    const newDismissed = {
+      ...dismissed,
+      [providerName]: now, // Store dismissal timestamp for this provider
+    };
+    setDismissed(newDismissed);
+    
+    // Persist to localStorage
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(newDismissed));
+      } catch (error) {
+        console.error("Failed to save dismissed notification:", error);
+      }
+    }
   };
 
   const handleGoToSettings = () => {
