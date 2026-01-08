@@ -43,6 +43,7 @@ export default function Resumes() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingResume, setEditingResume] = useState<Resume | null>(null);
   const [deletingResume, setDeletingResume] = useState<Resume | null>(null);
+  const [deletingOptimizedResume, setDeletingOptimizedResume] = useState<SavedOptimizedResume | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
@@ -94,6 +95,7 @@ export default function Resumes() {
     mutationFn: deleteOptimizedResume,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["optimizedResumes"] });
+      setDeletingOptimizedResume(null); // Close dialog
       toast({
         title: "Optimized resume deleted",
         description: "The optimized resume has been deleted successfully.",
@@ -557,7 +559,7 @@ export default function Resumes() {
                   <OptimizedResumeCard
                     key={optimized.id}
                     optimized={optimized}
-                    onDelete={() => deleteOptimizedMutation.mutate(optimized.id)}
+                    onDelete={() => setDeletingOptimizedResume(optimized)}
                     isDeleting={deleteOptimizedMutation.isPending}
                     shouldHighlight={highlightId === optimized.id}
                   />
@@ -584,6 +586,32 @@ export default function Resumes() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Optimized Resume Confirmation Dialog */}
+      <AlertDialog open={!!deletingOptimizedResume} onOpenChange={(open) => !open && setDeletingOptimizedResume(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Optimized Resume</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the optimized resume for "{deletingOptimizedResume?.job ? `${deletingOptimizedResume.job.title} - ${deletingOptimizedResume.job.company}` : 'this job'}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deletingOptimizedResume) {
+                  deleteOptimizedMutation.mutate(deletingOptimizedResume.id);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteOptimizedMutation.isPending}
+            >
+              {deleteOptimizedMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

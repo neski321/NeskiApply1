@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,6 @@ export default function ATSAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
-  const [aiProvider, setAiProvider] = useState<string>("auto");
   
   // Get user's default AI provider preference from settings
   const { data: settings = [] } = useQuery({
@@ -45,12 +44,18 @@ export default function ATSAnalyzer() {
     queryFn: getSettings,
   });
   
-  useEffect(() => {
+  // Compute default AI provider from settings
+  const defaultAiProvider = useMemo(() => {
     const providerSetting = settings.find(s => s.key === "ai_provider_preference");
-    if (providerSetting?.value) {
-      setAiProvider(providerSetting.value);
-    }
+    return providerSetting?.value || "auto";
   }, [settings]);
+  
+  const [aiProvider, setAiProvider] = useState<string>(defaultAiProvider);
+  
+  // Update aiProvider when settings change
+  useEffect(() => {
+    setAiProvider(defaultAiProvider);
+  }, [defaultAiProvider]);
   
   // Get jobId from URL query params
   const urlParams = new URLSearchParams(window.location.search);
