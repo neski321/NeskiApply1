@@ -74,11 +74,11 @@ Return your response as JSON in this exact format:
       }
     ];
 
-    // Call AI with fallback (Perplexity first, then Gemini)
+    // Call AI with fallback (Perplexity → Gemini → OpenRouter)
     const aiResult = await callAIWithFallback(messages, "sonar-pro", userId);
     
     if (!aiResult) {
-      console.error("No response from AI service (Perplexity or Gemini)");
+      console.error("No response from AI service (Perplexity, Gemini, or OpenRouter)");
       return null;
     }
 

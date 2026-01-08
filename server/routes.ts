@@ -869,14 +869,47 @@ export async function registerRoutes(
 
       // Call AI with fallback (Perplexity first, then Gemini)
       // Use provided aiProvider or default to user's preference
-      const providerOverride = aiProvider && ["perplexity", "gemini", "auto"].includes(aiProvider)
-        ? aiProvider as "perplexity" | "gemini" | "auto"
+      // Support both single providers and comma-separated combinations
+      const providerOverride = aiProvider && (
+        aiProvider === "auto" || 
+        aiProvider === "perplexity" || 
+        aiProvider === "gemini" || 
+        aiProvider === "openrouter" ||
+        aiProvider.includes("perplexity") ||
+        aiProvider.includes("gemini") ||
+        aiProvider.includes("openrouter")
+      )
+        ? aiProvider as string
         : undefined;
-      const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, providerOverride);
+      let aiResult;
+      try {
+        aiResult = await callAIWithFallback(messages, "sonar-pro", userId, providerOverride);
+      } catch (error: any) {
+        // Handle specific authorization errors
+        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid")) {
+          return res.status(401).json({ 
+            error: error.message || "API key is invalid or unauthorized. Please check your API key in Settings." 
+          });
+        }
+        // Re-throw other errors
+        throw error;
+      }
       
       if (!aiResult) {
+        // Determine which provider was requested to give a more specific error
+        const requestedProvider = providerOverride || "auto";
+        let errorMessage = "No response from AI service. Please check your API keys and try again.";
+        
+        if (requestedProvider === "perplexity") {
+          errorMessage = "Perplexity API failed. Please check your Perplexity API key in Settings.";
+        } else if (requestedProvider === "gemini") {
+          errorMessage = "Gemini API failed. Please check your Gemini API key in Settings.";
+        } else if (requestedProvider === "openrouter") {
+          errorMessage = "OpenRouter API failed. Please check your OpenRouter API key in Settings.";
+        }
+        
         return res.status(500).json({ 
-          error: "No response from AI service (Perplexity or Gemini). Please check your API keys and try again." 
+          error: errorMessage
         });
       }
 

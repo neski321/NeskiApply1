@@ -15,7 +15,8 @@ export interface AICallResult {
 }
 
 /**
- * Call AI service with fallback: Try Perplexity first, fallback to Gemini if it fails
+ * Call AI service with fallback: Try Perplexity first, then Gemini, then OpenRouter if both fail
+ * Fallback order: Perplexity → Gemini → OpenRouter
  * Respects user preference for AI provider (auto/perplexity/gemini/openrouter)
  * @param providerOverride - Optional provider to override user preference ("perplexity", "gemini", "openrouter", or "auto")
  */
@@ -23,80 +24,113 @@ export async function callAIWithFallback(
   messages: AIChatMessage[],
   model: string = "sonar-pro",
   userId: string,
-  providerOverride?: "perplexity" | "gemini" | "openrouter" | "auto"
+  providerOverride?: string
 ): Promise<AICallResult | null> {
   // Get user preference for AI provider, or use override if provided
   const providerPreference = providerOverride 
     ? { value: providerOverride }
     : await storage.getSetting("ai_provider_preference", userId);
-  const preference = providerPreference?.value || "auto"; // auto, perplexity, gemini, or openrouter
+  let preference = providerPreference?.value || "auto";
+  
+  // Handle "auto" as shorthand for all three providers
+  if (preference === "auto") {
+    preference = "perplexity,gemini,openrouter";
+  }
 
-  // If user specified a provider, use only that one
-  if (preference === "perplexity") {
-      const result = await tryPerplexity(messages, model, userId);
-      if (result) {
-        const { logAPICall } = await import("./api-usage");
-        await logAPICall("Perplexity API", "perplexity", { model }, userId);
-        return { content: result, provider: "perplexity", model };
+  // Parse provider chain (comma-separated: "perplexity,gemini" or single: "perplexity")
+  const providers = preference.split(",").map(p => p.trim()).filter(Boolean);
+  
+  if (providers.length === 0) {
+    console.error("Invalid provider preference, defaulting to auto");
+    providers.push("perplexity", "gemini", "openrouter");
+  }
+
+  // Get user's model preferences
+  const perplexityModelSetting = await storage.getSetting("perplexity_model", userId);
+  const perplexityModel = perplexityModelSetting?.value || "sonar-pro";
+  
+  const geminiModelSetting = await storage.getSetting("gemini_model", userId);
+  const geminiModel = geminiModelSetting?.value || "gemini-2.5-flash";
+
+  // Try each provider in order
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+    
+    if (provider === "perplexity") {
+      try {
+        // Use user's selected Perplexity model, or fallback to provided model parameter
+        const selectedModel = model !== "sonar-pro" ? model : perplexityModel;
+        const result = await tryPerplexity(messages, selectedModel, userId);
+        if (result) {
+          try {
+            const { logAPICall } = await import("./api-usage");
+            await logAPICall("Perplexity API", "perplexity", { model: selectedModel }, userId);
+          } catch (logError) {
+            console.error("Failed to log Perplexity API usage:", logError);
+          }
+          return { content: result, provider: "perplexity", model: selectedModel };
+        }
+        // If this is the last provider, don't continue
+        if (i === providers.length - 1) {
+          console.log("Perplexity failed and it's the last provider in chain");
+          return null;
+        }
+        console.log("Perplexity failed, trying next provider in chain...");
+      } catch (error: any) {
+        // Re-throw authorization errors so they can be handled by the caller
+        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid")) {
+          throw error;
+        }
+        // If this is the last provider, return null
+        if (i === providers.length - 1) {
+          console.log("Perplexity failed and it's the last provider in chain");
+          return null;
+        }
+        console.log("Perplexity failed, trying next provider in chain...");
       }
-    console.log("Perplexity failed but it's the preferred provider, no fallback");
-    return null;
-  }
-
-  if (preference === "gemini") {
-    const result = await tryGemini(messages, userId);
-    if (result) {
-      const { logAPICall } = await import("./api-usage");
-      await logAPICall("Gemini API", "gemini", { model: "gemini-2.5-flash" }, userId);
-      return { content: result, provider: "gemini", model: "gemini-2.5-flash" };
+    } else if (provider === "gemini") {
+      const result = await tryGemini(messages, geminiModel, userId);
+      if (result) {
+        try {
+          const { logAPICall } = await import("./api-usage");
+          await logAPICall("Gemini API", "gemini", { model: geminiModel }, userId);
+        } catch (logError) {
+          console.error("Failed to log Gemini API usage:", logError);
+        }
+        return { content: result, provider: "gemini", model: geminiModel };
+      }
+      // If this is the last provider, don't continue
+      if (i === providers.length - 1) {
+        console.log("Gemini failed and it's the last provider in chain");
+        return null;
+      }
+      console.log("Gemini failed, trying next provider in chain...");
+    } else if (provider === "openrouter") {
+      const modelSetting = await storage.getSetting("openrouter_model", userId);
+      const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free";
+      const result = await tryOpenRouter(messages, model, userId);
+      if (result) {
+        try {
+          const { logAPICall } = await import("./api-usage");
+          await logAPICall("OpenRouter API", "openrouter", { model: selectedModel }, userId);
+        } catch (logError) {
+          console.error("Failed to log OpenRouter API usage:", logError);
+        }
+        return { content: result, provider: "openrouter", model: selectedModel };
+      }
+      // If this is the last provider, don't continue
+      if (i === providers.length - 1) {
+        console.log("OpenRouter failed and it's the last provider in chain");
+        return null;
+      }
+      console.log("OpenRouter failed, trying next provider in chain...");
+    } else {
+      console.warn(`Unknown provider in chain: "${provider}", skipping...`);
     }
-    console.log("Gemini failed but it's the preferred provider, no fallback");
-    return null;
   }
 
-  if (preference === "openrouter") {
-    const modelSetting = await storage.getSetting("openrouter_model", userId);
-    const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free"; // Default to free model
-    const result = await tryOpenRouter(messages, model, userId);
-    if (result) {
-      const { logAPICall } = await import("./api-usage");
-      await logAPICall("OpenRouter API", "openrouter", { model: selectedModel }, userId);
-      return { content: result, provider: "openrouter", model: selectedModel };
-    }
-    console.log("OpenRouter failed but it's the preferred provider, no fallback");
-    return null;
-  }
-
-  // Auto mode: Try Perplexity first, then Gemini, then OpenRouter if both fail
-  const perplexityResult = await tryPerplexity(messages, model, userId);
-  if (perplexityResult) {
-    // Log API usage
-    const { logAPICall } = await import("./api-usage");
-    await logAPICall("Perplexity API", "perplexity", { model }, userId);
-    return { content: perplexityResult, provider: "perplexity", model };
-  }
-
-  // Fallback to Gemini (preferred over OpenRouter)
-  console.log("Perplexity failed, falling back to Gemini...");
-  const geminiResult = await tryGemini(messages, userId);
-  if (geminiResult) {
-    // Log API usage
-    const { logAPICall } = await import("./api-usage");
-    await logAPICall("Gemini API", "gemini", { model: "gemini-2.5-flash" }, userId);
-    return { content: geminiResult, provider: "gemini", model: "gemini-2.5-flash" };
-  }
-
-  // Final fallback to OpenRouter
-  console.log("Gemini failed, trying OpenRouter...");
-  const modelSetting = await storage.getSetting("openrouter_model", userId);
-  const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free"; // Default to free model
-  const openrouterResult = await tryOpenRouter(messages, model, userId);
-  if (openrouterResult) {
-    const { logAPICall } = await import("./api-usage");
-    await logAPICall("OpenRouter API", "openrouter", { model: selectedModel }, userId);
-    return { content: openrouterResult, provider: "openrouter", model: selectedModel };
-  }
-
+  // If we get here, all providers in the chain failed
+  console.log(`All providers in chain failed: ${providers.join(" → ")}`);
   return null;
 }
 
@@ -105,7 +139,7 @@ export async function callAIWithFallback(
  */
 async function tryPerplexity(
   messages: AIChatMessage[],
-  model: string = "sonar-pro",
+  model: string,
   userId: string
 ): Promise<string | null> {
   try {
@@ -152,15 +186,26 @@ async function tryPerplexity(
 
     return content;
   } catch (error: any) {
-    // Check if it's a rate limit or credit issue
+    // Check if it's an authorization error (401)
     const errorMessage = error?.message || String(error);
+    const isUnauthorized = errorMessage.includes("unauthorized") || 
+                          errorMessage.includes("not authorized") ||
+                          errorMessage.includes("401") ||
+                          error?.status === 401 ||
+                          error?.response?.status === 401;
+    
+    // Check if it's a rate limit or credit issue
     const isRateLimit = errorMessage.includes("rate limit") || 
                        errorMessage.includes("quota") || 
                        errorMessage.includes("credit") ||
                        errorMessage.includes("429") ||
                        error?.status === 429;
     
-    if (isRateLimit) {
+    if (isUnauthorized) {
+      console.error("Perplexity API authorization error (401): Invalid or expired API key");
+      // Throw a specific error so it can be caught and handled appropriately
+      throw new Error("Perplexity API key is invalid or unauthorized. Please check your API key in Settings.");
+    } else if (isRateLimit) {
       console.log("Perplexity rate limit/quota exceeded, will try Gemini");
     } else {
       console.error("Perplexity API error:", errorMessage);
@@ -253,7 +298,7 @@ async function tryOpenRouter(
 /**
  * Try calling Gemini API
  */
-async function tryGemini(messages: AIChatMessage[], userId: string): Promise<string | null> {
+async function tryGemini(messages: AIChatMessage[], model: string, userId: string): Promise<string | null> {
   try {
     const apiKeySetting = await storage.getSetting("gemini_api_key", userId);
     
@@ -263,7 +308,7 @@ async function tryGemini(messages: AIChatMessage[], userId: string): Promise<str
     }
 
     const genAI = new GoogleGenerativeAI(apiKeySetting.value);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const geminiModelInstance = genAI.getGenerativeModel({ model: model });
 
     // Convert messages to Gemini format
     // Gemini doesn't support system messages directly, so we'll prepend it to the first user message
@@ -287,7 +332,7 @@ async function tryGemini(messages: AIChatMessage[], userId: string): Promise<str
     // Remove trailing newlines
     prompt = prompt.trim();
 
-    const result = await model.generateContent(prompt);
+    const result = await geminiModelInstance.generateContent(prompt);
     const response = await result.response;
     const content = response.text();
 

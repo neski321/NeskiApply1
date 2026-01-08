@@ -25,7 +25,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis, getSettings } from "@/lib/api";
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator, SelectGroup } from "@/components/ui/select";
 
 export default function ATSAnalyzer() {
   const { toast } = useToast();
@@ -36,7 +36,7 @@ export default function ATSAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
-  const [aiProvider, setAiProvider] = useState<"auto" | "perplexity" | "gemini" | "openrouter">("auto");
+  const [aiProvider, setAiProvider] = useState<string>("auto");
   
   // Get user's default AI provider preference from settings
   const { data: settings = [] } = useQuery({
@@ -46,8 +46,8 @@ export default function ATSAnalyzer() {
   
   useEffect(() => {
     const providerSetting = settings.find(s => s.key === "ai_provider_preference");
-    if (providerSetting?.value && ["auto", "perplexity", "gemini", "openrouter"].includes(providerSetting.value)) {
-      setAiProvider(providerSetting.value as "auto" | "perplexity" | "gemini" | "openrouter");
+    if (providerSetting?.value) {
+      setAiProvider(providerSetting.value);
     }
   }, [settings]);
   
@@ -321,25 +321,51 @@ export default function ATSAnalyzer() {
                     <Brain className="h-4 w-4 text-primary" />
                     AI Provider
                   </Label>
-                  <Select value={aiProvider} onValueChange={(value) => setAiProvider(value as "auto" | "perplexity" | "gemini" | "openrouter")}>
+                  <Select value={aiProvider} onValueChange={setAiProvider}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select AI provider" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">Auto (Use Default Settings)</SelectItem>
-                      <SelectItem value="perplexity">Perplexity</SelectItem>
-                      <SelectItem value="openrouter">OpenRouter</SelectItem>
-                      <SelectItem value="gemini">Gemini</SelectItem>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Single Provider</SelectLabel>
+                        <SelectItem value="perplexity">Perplexity Only</SelectItem>
+                        <SelectItem value="gemini">Gemini Only</SelectItem>
+                        <SelectItem value="openrouter">OpenRouter Only</SelectItem>
+                      </SelectGroup>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Two Providers</SelectLabel>
+                        <SelectItem value="perplexity,gemini">Perplexity → Gemini</SelectItem>
+                        <SelectItem value="perplexity,openrouter">Perplexity → OpenRouter</SelectItem>
+                        <SelectItem value="gemini,openrouter">Gemini → OpenRouter</SelectItem>
+                      </SelectGroup>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>All Providers</SelectLabel>
+                        <SelectItem value="perplexity,gemini,openrouter">Perplexity → Gemini → OpenRouter</SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {aiProvider === "auto" 
                       ? "Uses your default AI provider preference from Settings"
                       : aiProvider === "perplexity"
-                      ? "Uses Perplexity AI for this analysis"
+                      ? "Uses Perplexity AI only. No fallback."
+                      : aiProvider === "gemini"
+                      ? "Uses Gemini AI only. No fallback."
                       : aiProvider === "openrouter"
-                      ? "Uses OpenRouter for this analysis"
-                      : "Uses Google Gemini AI for this analysis"}
+                      ? "Uses OpenRouter only. No fallback."
+                      : aiProvider === "perplexity,gemini"
+                      ? "Uses Perplexity first, falls back to Gemini if needed."
+                      : aiProvider === "perplexity,openrouter"
+                      ? "Uses Perplexity first, falls back to OpenRouter if needed."
+                      : aiProvider === "gemini,openrouter"
+                      ? "Uses Gemini first, falls back to OpenRouter if needed."
+                      : aiProvider === "perplexity,gemini,openrouter"
+                      ? "Uses Perplexity first, then Gemini, then OpenRouter if needed."
+                      : "Uses your default AI provider preference from Settings"}
                   </p>
                 </div>
 
