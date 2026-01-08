@@ -4,9 +4,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Clock, Upload, Send, AlertCircle, FileText, Briefcase, Wand2, User } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getActivityLogs, type ActivityLogWithUser } from "@/lib/api";
+import { getActivityLogs, getAllUsers, type ActivityLogWithUser } from "@/lib/api";
 import { formatInTimeZone } from "date-fns-tz";
 import { useAuth } from "@/hooks/use-auth";
+import { useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 const getIconForType = (type: string) => {
   switch (type) {
@@ -49,10 +58,18 @@ const getIconForMessage = (message: string) => {
 export default function Activity() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [selectedUserId, setSelectedUserId] = useState<string>("all");
+  
+  // Fetch all users if admin (for filter dropdown)
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ["users"],
+    queryFn: getAllUsers,
+    enabled: isAdmin, // Only fetch if admin
+  });
   
   const { data: logs = [], isLoading } = useQuery<ActivityLogWithUser[]>({
-    queryKey: ["activity"],
-    queryFn: () => getActivityLogs(300),
+    queryKey: ["activity", selectedUserId],
+    queryFn: () => getActivityLogs(300, selectedUserId === "all" ? undefined : selectedUserId),
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
@@ -72,25 +89,48 @@ export default function Activity() {
   return (
     <Layout>
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold">Activity Log</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              {isAdmin 
-                ? "All system activity logs - showing logs from all users" 
-                : "Your personal activity history - all logs are private to your account"}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
-            {isAdmin && (
-              <Badge variant="outline" className="border-primary/50 text-primary text-xs">
-                Admin View
-              </Badge>
-            )}
-            <div className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-              {logs.length} {logs.length === 1 ? "event" : "events"} logged
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl sm:text-2xl font-bold">Activity Log</h1>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                {isAdmin 
+                  ? "All system activity logs - showing logs from all users" 
+                  : "Your personal activity history - all logs are private to your account"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+              {isAdmin && (
+                <Badge variant="outline" className="border-primary/50 text-primary text-xs">
+                  Admin View
+                </Badge>
+              )}
+              <div className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+                {logs.length} {logs.length === 1 ? "event" : "events"} logged
+              </div>
             </div>
           </div>
+          
+          {isAdmin && (
+            <div className="flex items-center gap-3">
+              <Label htmlFor="user-filter" className="text-sm font-medium whitespace-nowrap">
+                Filter by User:
+              </Label>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger id="user-filter" className="w-[200px]">
+                  <SelectValue placeholder="All users" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All users</SelectItem>
+                  {allUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.username}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         
         <Card className="bg-card/50 border-border/50 flex-1">

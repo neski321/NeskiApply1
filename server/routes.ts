@@ -2194,11 +2194,18 @@ export async function registerRoutes(
     try {
       const user = getUserFromRequest(req);
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+      const filterUserId = req.query.userId as string | undefined; // Optional user filter for admins
       
-      // If user is admin, get all logs; otherwise get only their logs
+      // If user is admin, get all logs (optionally filtered by userId); otherwise get only their logs
       let logs;
       if (isAdmin(user)) {
-        logs = await storage.getAllActivityLogs(limit);
+        if (filterUserId) {
+          // Admin filtering by specific user
+          logs = await storage.getActivityLogs(filterUserId, limit);
+        } else {
+          // Admin viewing all logs
+          logs = await storage.getAllActivityLogs(limit);
+        }
       } else {
         const userId = getUserIdFromRequest(req);
         logs = await storage.getActivityLogs(userId, limit);
@@ -2206,7 +2213,7 @@ export async function registerRoutes(
       
       // If admin, enrich logs with user information
       if (isAdmin(user) && logs.length > 0) {
-        const userIds = [...new Set(logs.map(log => log.userId))];
+        const userIds = Array.from(new Set(logs.map(log => log.userId)));
         const usersMap = new Map();
         
         // Fetch user info for all unique user IDs

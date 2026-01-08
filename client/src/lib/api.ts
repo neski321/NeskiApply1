@@ -411,9 +411,10 @@ export type ActivityLogWithUser = ActivityLog & {
   user?: { id: string; username: string };
 };
 
-export async function getActivityLogs(limit?: number): Promise<ActivityLogWithUser[]> {
+export async function getActivityLogs(limit?: number, userId?: string): Promise<ActivityLogWithUser[]> {
   const params = new URLSearchParams();
   if (limit) params.append("limit", limit.toString());
+  if (userId) params.append("userId", userId);
   
   const response = await fetch(`/api/activity?${params}`, {
     credentials: "include",

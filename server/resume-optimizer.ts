@@ -41,10 +41,19 @@ export async function analyzeOptimizedResume(
   userId: string
 ): Promise<OptimizedResumeAnalysis> {
   try {
-    // Check if Perplexity API key is configured (required for ATS analysis)
+    // Get user's AI provider preference for ATS analysis
+    const aiProviderPreference = await storage.getSetting("ai_provider_preference", userId);
+    const providerOverride = aiProviderPreference?.value || "auto";
+    
+    // Check if at least one AI API key is configured
     const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
-    if (!perplexityKey || !perplexityKey.value) {
-      throw new Error("Perplexity API key is required for ATS analysis");
+    const geminiKey = await storage.getSetting("gemini_api_key", userId);
+    const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
+    
+    if ((!perplexityKey || !perplexityKey.value) && 
+        (!geminiKey || !geminiKey.value) && 
+        (!openrouterKey || !openrouterKey.value)) {
+      throw new Error("At least one AI API key (Perplexity, Gemini, or OpenRouter) is required for ATS analysis");
     }
 
     // Convert optimized resume to a format that can be analyzed
@@ -172,11 +181,16 @@ ${optimizedResume.projects.map(proj =>
       }
     ];
 
-    // Call Perplexity for ATS analysis (as requested)
-    const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, "perplexity");
+    // Call AI with fallback using user's provider preference
+    // Get model settings for all providers (callAIWithFallback will use the appropriate one)
+    const perplexityModelSetting = await storage.getSetting("perplexity_model", userId);
+    const perplexityModel = perplexityModelSetting?.value || "sonar-pro";
+    
+    // Pass the default model - callAIWithFallback will use user's model preferences for each provider
+    const aiResult = await callAIWithFallback(messages, perplexityModel, userId, providerOverride);
 
     if (!aiResult) {
-      throw new Error("Failed to get response from Perplexity AI for ATS analysis");
+      throw new Error("Failed to get response from AI service for ATS analysis");
     }
 
     // Parse the JSON response
