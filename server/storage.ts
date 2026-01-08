@@ -13,6 +13,8 @@ import {
   type InsertActivityLog,
   type OptimizedResume,
   type InsertOptimizedResume,
+  type PasswordResetToken,
+  type InsertPasswordResetToken,
   users,
   resumes,
   jobs,
@@ -20,9 +22,10 @@ import {
   settings,
   activityLogs,
   optimizedResumes,
+  passwordResetTokens,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, or, isNull, asc, lt } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull, asc, lt, gt } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -70,6 +73,12 @@ export interface IStorage {
   getOptimizedResumes(userId: string, jobId?: number): Promise<OptimizedResume[]>;
   getOptimizedResume(id: number, userId: string): Promise<OptimizedResume | undefined>;
   deleteOptimizedResume(id: number, userId: string): Promise<boolean>;
+
+  // Password Reset Tokens
+  createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken>;
+  getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
+  markPasswordResetTokenAsUsed(token: string): Promise<boolean>;
+  updateUserPassword(userId: string, newPassword: string): Promise<User | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -443,6 +452,38 @@ export class DatabaseStorage implements IStorage {
       .delete(optimizedResumes)
       .where(and(eq(optimizedResumes.id, id), eq(optimizedResumes.userId, userId)));
     return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  // Password Reset Tokens
+  async createPasswordResetToken(token: InsertPasswordResetToken): Promise<PasswordResetToken> {
+    const [result] = await db.insert(passwordResetTokens).values(token).returning();
+    return result;
+  }
+
+  async getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [result] = await db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.token, token))
+      .limit(1);
+    return result;
+  }
+
+  async markPasswordResetTokenAsUsed(token: string): Promise<boolean> {
+    const result = await db
+      .update(passwordResetTokens)
+      .set({ used: true })
+      .where(eq(passwordResetTokens.token, token));
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  async updateUserPassword(userId: string, newPassword: string): Promise<User | undefined> {
+    const [result] = await db
+      .update(users)
+      .set({ password: newPassword })
+      .where(eq(users.id, userId))
+      .returning();
+    return result;
   }
 }
 

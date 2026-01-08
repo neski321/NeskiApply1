@@ -26,6 +26,7 @@ import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, g
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator, SelectGroup } from "@/components/ui/select";
+import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 
 export default function ATSAnalyzer() {
   const { toast } = useToast();
@@ -268,6 +269,7 @@ export default function ATSAnalyzer() {
   return (
     <Layout>
       <div className="flex flex-col gap-8 pb-10">
+        <InvalidAPIKeyNotification />
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <Wand2 className="h-8 w-8 text-primary" />
