@@ -14,6 +14,8 @@ import ATSAnalyzer from "@/pages/ATSAnalyzer";
 import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import ResumeParser from "@/pages/ResumeParser";
 import ResumeOptimizer from "@/pages/ResumeOptimizer";
 import { useAuth } from "@/hooks/use-auth";
@@ -44,6 +46,14 @@ function Router() {
       <Route path="/signup">
         <AuthRedirect />
         <Signup />
+      </Route>
+      <Route path="/forgot-password">
+        <AuthRedirect />
+        <ForgotPassword />
+      </Route>
+      <Route path="/reset-password">
+        <AuthRedirect />
+        <ResetPassword />
       </Route>
       
       {/* Protected routes */}

@@ -2,6 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { ZeroScoreJobsNotification } from "@/components/ZeroScoreJobsNotification";
+import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, SlidersHorizontal, Filter, ArrowUpDown } from "lucide-react";
@@ -148,6 +149,7 @@ export default function JobFeed() {
       <div className="flex flex-col gap-4 md:gap-6 h-full w-full">
         <div className="flex flex-col gap-4">
           <h1 className="text-xl sm:text-2xl font-bold">Job Feed</h1>
+          <InvalidAPIKeyNotification />
           <ZeroScoreJobsNotification />
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 min-w-0">

@@ -175,6 +175,164 @@ export async function registerRoutes(
       });
     });
   });
+
+  // Request password reset
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { username } = req.body;
+      
+      if (!username) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      // Find user by username
+      let user;
+      try {
+        user = await storage.getUserByUsername(username);
+      } catch (dbError) {
+        console.error("Database error in forgot-password:", dbError);
+        // If it's a table doesn't exist error, return a helpful message
+        if (dbError instanceof Error && dbError.message.includes("does not exist")) {
+          return res.status(500).json({ 
+            error: "Database table not found. Please run database migrations.",
+            message: "The password reset feature requires a database migration. Please contact support."
+          });
+        }
+        throw dbError;
+      }
+      
+      // Always return success (don't reveal if user exists for security)
+      if (!user) {
+        return res.json({ 
+          success: true, 
+          message: "If an account with that username exists, a password reset link has been sent." 
+        });
+      }
+
+      // Generate reset token
+      const crypto = await import("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1); // Token expires in 1 hour
+
+      // Save token to database
+      try {
+        await storage.createPasswordResetToken({
+          userId: user.id,
+          token,
+          expiresAt,
+          used: false,
+        });
+      } catch (dbError) {
+        console.error("Database error creating password reset token:", dbError);
+        // If it's a table doesn't exist error, return a helpful message
+        if (dbError instanceof Error && (
+          dbError.message.includes("does not exist") || 
+          dbError.message.includes("relation") ||
+          dbError.message.includes("table")
+        )) {
+          return res.status(500).json({ 
+            error: "Database table not found",
+            message: "The password reset feature requires a database migration. Please run 'npm run db:push' to create the required table."
+          });
+        }
+        throw dbError;
+      }
+
+      // In a real app, you would send an email here with the reset link
+      // For now, we'll return the token in the response (for development/testing)
+      // In production, remove the token from the response and send it via email
+      const resetUrl = `${req.protocol}://${req.get("host")}/reset-password?token=${token}`;
+      
+      console.log(`[Password Reset] Reset link for user ${username}: ${resetUrl}`);
+      
+      // Log activity
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        "Password reset requested",
+        { userId: user.id, username: user.username },
+        user.id
+      );
+
+      res.json({ 
+        success: true, 
+        message: "If an account with that username exists, a password reset link has been sent.",
+        // Remove this in production - only for development
+        resetUrl: process.env.NODE_ENV === "development" ? resetUrl : undefined
+      });
+    } catch (error) {
+      console.error("Error requesting password reset:", error);
+      res.status(500).json({ 
+        error: "Failed to process password reset request",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Reset password with token
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: "Token and new password are required" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      // Find token
+      const resetToken = await storage.getPasswordResetToken(token);
+      
+      if (!resetToken) {
+        return res.status(400).json({ error: "Invalid or expired reset token" });
+      }
+
+      // Check if token is used
+      if (resetToken.used) {
+        return res.status(400).json({ error: "This reset token has already been used" });
+      }
+
+      // Check if token is expired
+      if (new Date() > new Date(resetToken.expiresAt)) {
+        return res.status(400).json({ error: "This reset token has expired" });
+      }
+
+      // Hash new password
+      const bcrypt = await import("bcrypt");
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update user password
+      const updatedUser = await storage.updateUserPassword(resetToken.userId, hashedPassword);
+      
+      if (!updatedUser) {
+        return res.status(500).json({ error: "Failed to update password" });
+      }
+
+      // Mark token as used
+      await storage.markPasswordResetTokenAsUsed(token);
+
+      // Log activity
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        "Password reset completed",
+        { userId: updatedUser.id, username: updatedUser.username },
+        updatedUser.id
+      );
+
+      res.json({ 
+        success: true, 
+        message: "Password has been reset successfully. You can now log in with your new password." 
+      });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      res.status(500).json({ 
+        error: "Failed to reset password",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
   
   // ============ RESUMES API ============
   
@@ -767,15 +925,20 @@ export async function registerRoutes(
       // Check if at least one AI API key is configured
       const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
       const geminiKey = await storage.getSetting("gemini_api_key", userId);
+      const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
       
-      if ((!perplexityKey || !perplexityKey.value) && (!geminiKey || !geminiKey.value)) {
+      if ((!perplexityKey || !perplexityKey.value) && 
+          (!geminiKey || !geminiKey.value) && 
+          (!openrouterKey || !openrouterKey.value)) {
         return res.status(400).json({ 
-          error: "Neither Perplexity nor Gemini API key configured. Please add at least one in Settings." 
+          error: "No AI API key configured. Please add at least one (Perplexity, Gemini, or OpenRouter) in Settings." 
         });
       }
 
-      // Import AI service with fallback
+      // Import AI service with fallback and usage tracking
       const { callAIWithFallback } = await import("./ai-service");
+      const { getAPIUsage } = await import("./api-usage");
+      const { activityLogger } = await import("./logger");
       type AIChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
       // Prepare messages for AI analysis
@@ -867,37 +1030,112 @@ export async function registerRoutes(
       ];
       
 
-      // Call AI with fallback (Perplexity first, then Gemini)
-      // Use provided aiProvider or default to user's preference
+      // Get user's provider preference or use override
+      const providerPreference = await storage.getSetting("ai_provider_preference", userId);
+      let preference = aiProvider || providerPreference?.value || "auto";
+      
+      // Check API usage before processing
+      const usage = await getAPIUsage(userId);
+      
+      // Determine which providers might be used
+      let willUsePerplexity = false;
+      let willUseGemini = false;
+      let willUseOpenRouter = false;
+      
+      if (preference === "auto" || preference === "perplexity,gemini,openrouter") {
+        willUsePerplexity = true;
+        willUseGemini = true;
+        willUseOpenRouter = true;
+      } else {
+        const providers = preference.split(",").map(p => p.trim());
+        willUsePerplexity = providers.includes("perplexity");
+        willUseGemini = providers.includes("gemini");
+        willUseOpenRouter = providers.includes("openrouter");
+      }
+      
+      // Check daily limits - if primary providers hit limit, switch to OpenRouter
+      const perplexityDailyLimit = willUsePerplexity && 
+        usage.providers.perplexity.dailyCount >= usage.providers.perplexity.dailyLimit;
+      const geminiDailyLimit = willUseGemini && 
+        usage.providers.gemini.dailyCount >= usage.providers.gemini.dailyLimit;
+      const openrouterDailyLimit = willUseOpenRouter && 
+        usage.providers.openrouter.dailyCount >= usage.providers.openrouter.dailyLimit;
+      
+      // If primary providers hit daily limit, automatically switch to OpenRouter if available
+      if ((perplexityDailyLimit || geminiDailyLimit) && !openrouterDailyLimit && willUseOpenRouter) {
+        console.log(`[ATS Analyzer] Primary providers (Perplexity/Gemini) at daily limit, switching to OpenRouter...`);
+        preference = "openrouter";
+        await activityLogger.info(
+          "ATS Analysis: Switched to OpenRouter due to daily limit on primary providers",
+          { originalPreference: aiProvider || providerPreference?.value, switchedTo: "openrouter" },
+          userId
+        );
+      }
+      
+      // Call AI with fallback (Perplexity → Gemini → OpenRouter)
       // Support both single providers and comma-separated combinations
-      const providerOverride = aiProvider && (
-        aiProvider === "auto" || 
-        aiProvider === "perplexity" || 
-        aiProvider === "gemini" || 
-        aiProvider === "openrouter" ||
-        aiProvider.includes("perplexity") ||
-        aiProvider.includes("gemini") ||
-        aiProvider.includes("openrouter")
-      )
-        ? aiProvider as string
-        : undefined;
+      const providerOverride = preference;
       let aiResult;
-      try {
-        aiResult = await callAIWithFallback(messages, "sonar-pro", userId, providerOverride);
-      } catch (error: any) {
-        // Handle specific authorization errors
-        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid")) {
-          return res.status(401).json({ 
-            error: error.message || "API key is invalid or unauthorized. Please check your API key in Settings." 
-          });
+      let retryCount = 0;
+      const MAX_RETRIES = 2; // Allow one retry with fallback
+      
+      while (retryCount <= MAX_RETRIES) {
+        try {
+          aiResult = await callAIWithFallback(messages, "sonar-pro", userId, providerOverride);
+          
+          if (aiResult) {
+            break; // Success, exit retry loop
+          }
+          
+          // If no result and we haven't tried OpenRouter yet, switch to it
+          if (retryCount === 0 && !openrouterDailyLimit && willUseOpenRouter && preference !== "openrouter") {
+            console.log(`[ATS Analyzer] Primary providers failed, retrying with OpenRouter...`);
+            preference = "openrouter";
+            retryCount++;
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Brief delay before retry
+            continue;
+          }
+          
+          // If still no result after retries, break
+          break;
+        } catch (error: any) {
+          // Check if it's a 401/unauthorized error
+          const isUnauthorized = error?.message?.includes("unauthorized") || 
+                                error?.message?.includes("invalid") || 
+                                error?.message?.includes("401") ||
+                                error?.status === 401;
+          
+          if (isUnauthorized) {
+            // Log the error (already logged in ai-service, but log here for context)
+            await activityLogger.warning(
+              "ATS Analysis: API key authorization error, attempting fallback",
+              { provider: providerOverride, error: error?.message },
+              userId
+            );
+            
+            // If we haven't tried OpenRouter yet, switch to it
+            if (retryCount === 0 && !openrouterDailyLimit && willUseOpenRouter && preference !== "openrouter") {
+              console.log(`[ATS Analyzer] 401 error with ${providerOverride}, switching to OpenRouter...`);
+              preference = "openrouter";
+              retryCount++;
+              await new Promise(resolve => setTimeout(resolve, 2000)); // Brief delay before retry
+              continue;
+            } else {
+              // All providers failed or already tried OpenRouter
+              return res.status(401).json({ 
+                error: error.message || "API key is invalid or unauthorized. Please check your API key in Settings." 
+              });
+            }
+          }
+          
+          // For other errors, re-throw
+          throw error;
         }
-        // Re-throw other errors
-        throw error;
       }
       
       if (!aiResult) {
         // Determine which provider was requested to give a more specific error
-        const requestedProvider = providerOverride || "auto";
+        const requestedProvider = aiProvider || providerPreference?.value || "auto";
         let errorMessage = "No response from AI service. Please check your API keys and try again.";
         
         if (requestedProvider === "perplexity") {
@@ -1330,49 +1568,220 @@ export async function registerRoutes(
         }
       }
       
-      // Process auto-matching sequentially with delays to avoid rate limits
-      // This prevents Gemini (or other APIs) from being overwhelmed when n8n sends many jobs at once
+      // Process auto-matching sequentially with smart rate limiting
+      // This prevents hitting rate limits when n8n sends many jobs at once (e.g., 30 jobs/hour)
+      // The system will pause and wait when limits are reached, then resume to ensure every job is scanned
       if (jobsToMatch.length > 0) {
-        console.log(`[Ingest] Queueing ${jobsToMatch.length} jobs for sequential auto-matching...`);
+        console.log(`[Ingest] Queueing ${jobsToMatch.length} jobs for sequential auto-matching with rate limit protection...`);
         const { matchAndUpdateJob } = await import("./matcher/job-matcher");
         const { activityLogger } = await import("./logger");
+        const { getAPIUsage } = await import("./api-usage");
         
         let matchedCount = 0;
         let failedCount = 0;
         const failedJobIds: number[] = []; // Track failed job IDs for notification
         
-        for (const jobToMatch of jobsToMatch) {
-          try {
-            // Add delay between API calls to respect rate limits (2 seconds like batch matching)
-            if (matchedCount > 0 || failedCount > 0) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
+        // Calculate minimum delay between requests based on rate limits
+        // Gemini: 2 req/min = 30 seconds, Perplexity: 5 req/min = 12 seconds
+        // Use 30 seconds to be safe for Gemini's 2 req/min limit
+        const MIN_DELAY_MS = 30000; // 30 seconds between requests (safe for Gemini's 2 req/min)
+        
+        // Helper function to wait for rate limit to reset
+        const waitForRateLimitReset = async (provider: string, usage: any) => {
+          console.log(`[Ingest] ${provider} rate limit reached. Pausing and waiting for reset...`);
+          // Wait 65 seconds to ensure we're past the 1-minute window
+          await new Promise(resolve => setTimeout(resolve, 65000));
+          console.log(`[Ingest] Rate limit window reset, resuming processing...`);
+        };
+        
+        // Helper function to check if we need to wait for daily limit
+        // For daily limits, we'll wait until the next day (midnight reset)
+        const waitForDailyLimitReset = async () => {
+          const now = new Date();
+          const tomorrow = new Date(now);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          tomorrow.setHours(0, 0, 0, 0);
+          const msUntilMidnight = tomorrow.getTime() - now.getTime();
+          
+          if (msUntilMidnight > 0) {
+            const hoursUntilMidnight = Math.ceil(msUntilMidnight / (1000 * 60 * 60));
+            console.log(`[Ingest] Daily limit reached. Pausing until midnight reset (${hoursUntilMidnight} hours)...`);
+            await new Promise(resolve => setTimeout(resolve, msUntilMidnight + 60000)); // Add 1 minute buffer
+            console.log(`[Ingest] Daily limit reset, resuming processing...`);
+          }
+        };
+        
+        for (let i = 0; i < jobsToMatch.length; i++) {
+          const jobToMatch = jobsToMatch[i];
+          let retryCount = 0;
+          const MAX_RETRIES = 3;
+          
+          while (retryCount < MAX_RETRIES) {
+            try {
+              // Check current API usage before processing
+              const usage = await getAPIUsage(userId);
+              
+              // Get user's AI provider preference to know which limits to check
+              const providerPreference = await storage.getSetting("ai_provider_preference", userId);
+              const preference = providerPreference?.value || "auto";
+              
+              // Determine which providers might be used
+              let willUsePerplexity = false;
+              let willUseGemini = false;
+              let willUseOpenRouter = false;
+              
+              if (preference === "auto" || preference === "perplexity,gemini,openrouter") {
+                willUsePerplexity = true;
+                willUseGemini = true;
+                willUseOpenRouter = true;
+              } else {
+                const providers = preference.split(",").map(p => p.trim());
+                willUsePerplexity = providers.includes("perplexity");
+                willUseGemini = providers.includes("gemini");
+                willUseOpenRouter = providers.includes("openrouter");
+              }
+              
+              // Check minute limits and wait if needed
+              const perplexityMinuteLimit = willUsePerplexity && 
+                usage.providers.perplexity.minuteCount >= usage.providers.perplexity.minuteLimit;
+              const geminiMinuteLimit = willUseGemini && 
+                usage.providers.gemini.minuteCount >= usage.providers.gemini.minuteLimit;
+              const openrouterMinuteLimit = willUseOpenRouter && 
+                usage.providers.openrouter.minuteCount >= usage.providers.openrouter.minuteLimit;
+              
+              // Wait for minute limit to reset if needed
+              if (perplexityMinuteLimit) {
+                await waitForRateLimitReset("Perplexity", usage);
+                // Re-check usage after waiting
+                continue; // Retry this job
+              }
+              if (geminiMinuteLimit) {
+                await waitForRateLimitReset("Gemini", usage);
+                continue; // Retry this job
+              }
+              if (openrouterMinuteLimit) {
+                await waitForRateLimitReset("OpenRouter", usage);
+                continue; // Retry this job
+              }
+              
+              // Check daily limits
+              const perplexityDailyLimit = willUsePerplexity && 
+                usage.providers.perplexity.dailyCount >= usage.providers.perplexity.dailyLimit;
+              const geminiDailyLimit = willUseGemini && 
+                usage.providers.gemini.dailyCount >= usage.providers.gemini.dailyLimit;
+              const openrouterDailyLimit = willUseOpenRouter && 
+                usage.providers.openrouter.dailyCount >= usage.providers.openrouter.dailyLimit;
+              
+              // If primary providers hit daily limit, automatically switch to OpenRouter if available
+              if ((perplexityDailyLimit || geminiDailyLimit) && !openrouterDailyLimit && willUseOpenRouter) {
+                console.log(`[Ingest] Primary providers (Perplexity/Gemini) at daily limit, switching to OpenRouter for job ${jobToMatch.id}...`);
+                // Temporarily override provider preference to use OpenRouter only
+                const originalPreference = preference;
+                await storage.setSetting("ai_provider_preference", "openrouter", userId);
+                // Process job with OpenRouter
+                const success = await matchAndUpdateJob(jobToMatch.id, userId);
+                // Restore original preference
+                await storage.setSetting("ai_provider_preference", originalPreference, userId);
+                
+                if (success) {
+                  matchedCount++;
+                  console.log(`[Ingest] Successfully auto-matched job ${jobToMatch.id} using OpenRouter fallback - ${matchedCount}/${jobsToMatch.length} completed`);
+                  break; // Success, move to next job
+                } else {
+                  console.warn(`[Ingest] OpenRouter fallback also failed for job ${jobToMatch.id}`);
+                  // Continue to retry logic below
+                }
+              }
+              
+              // Check if all potential providers are at their daily limit
+              const allProvidersAtDailyLimit = 
+                (willUsePerplexity && perplexityDailyLimit) &&
+                (willUseGemini && geminiDailyLimit) &&
+                (willUseOpenRouter && openrouterDailyLimit);
+              
+              if (allProvidersAtDailyLimit) {
+                // Wait until midnight for daily limit reset
+                await waitForDailyLimitReset();
+                // Re-check usage after waiting
+                continue; // Retry this job
+              }
+              
+              // Add delay between API calls to respect rate limits
+              if (i > 0 || retryCount > 0) {
+                const delay = MIN_DELAY_MS;
+                console.log(`[Ingest] Waiting ${delay / 1000} seconds before processing job ${jobToMatch.id} (${i + 1}/${jobsToMatch.length})...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+              
+              const success = await matchAndUpdateJob(jobToMatch.id, userId);
+              if (success) {
+                matchedCount++;
+                console.log(`[Ingest] Successfully auto-matched job ${jobToMatch.id} (${jobToMatch.title}) - ${matchedCount}/${jobsToMatch.length} completed`);
+                break; // Success, move to next job
+              } else {
+                retryCount++;
+                if (retryCount < MAX_RETRIES) {
+                  console.warn(`[Ingest] Auto-matching failed for job ${jobToMatch.id}, retrying with fallback providers (${retryCount}/${MAX_RETRIES})...`);
+                  // If retrying and we haven't tried OpenRouter yet, switch to it
+                  if (retryCount === 1 && !openrouterDailyLimit && willUseOpenRouter) {
+                    console.log(`[Ingest] Switching to OpenRouter fallback for retry of job ${jobToMatch.id}...`);
+                    const originalPreference = preference;
+                    await storage.setSetting("ai_provider_preference", "openrouter", userId);
+                    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds before retry
+                    // Will retry with OpenRouter in next iteration
+                    continue;
+                  } else {
+                    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds before retry
+                    continue;
+                  }
+                } else {
+                  failedCount++;
+                  failedJobIds.push(jobToMatch.id);
+                  console.warn(`[Ingest] Auto-matching failed for job ${jobToMatch.id} (${jobToMatch.title}) after ${MAX_RETRIES} retries - may need manual ATS analysis`);
+                  await activityLogger.error(
+                    `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion after ${MAX_RETRIES} retries`,
+                    { jobId: jobToMatch.id, reason: "AI service returned null or failed" },
+                    userId
+                  );
+                  break; // Move to next job
+                }
+              }
+            } catch (err: any) {
+              // Check if it's a 401/unauthorized error - switch provider and retry
+              const isUnauthorized = err?.message?.includes("unauthorized") || 
+                                    err?.message?.includes("invalid") || 
+                                    err?.message?.includes("401") ||
+                                    err?.status === 401;
+              
+              if (isUnauthorized && retryCount === 0) {
+                // First retry: switch to OpenRouter if available
+                console.warn(`[Ingest] 401/unauthorized error for job ${jobToMatch.id}, switching to OpenRouter fallback...`);
+                if (!openrouterDailyLimit && willUseOpenRouter) {
+                  const originalPreference = preference;
+                  await storage.setSetting("ai_provider_preference", "openrouter", userId);
+                  retryCount++;
+                  await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds before retry
+                  continue; // Retry with OpenRouter
+                }
+              }
+              
+              retryCount++;
+              if (retryCount < MAX_RETRIES) {
+                console.error(`[Ingest] Error auto-matching job ${jobToMatch.id}, retrying (${retryCount}/${MAX_RETRIES}):`, err);
+                await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds before retry
+                continue;
+              } else {
+                failedCount++;
+                failedJobIds.push(jobToMatch.id);
+                console.error(`[Ingest] Error auto-matching job ${jobToMatch.id} (${jobToMatch.title}) after ${MAX_RETRIES} retries:`, err);
+                await activityLogger.error(
+                  `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion after ${MAX_RETRIES} retries`,
+                  { jobId: jobToMatch.id, error: err instanceof Error ? err.message : String(err), isUnauthorized },
+                  userId
+                );
+                break; // Move to next job
+              }
             }
-            
-            const success = await matchAndUpdateJob(jobToMatch.id, userId);
-            if (success) {
-              matchedCount++;
-              console.log(`[Ingest] Successfully auto-matched job ${jobToMatch.id} (${jobToMatch.title})`);
-            } else {
-              failedCount++;
-              failedJobIds.push(jobToMatch.id); // Track failed job
-              console.warn(`[Ingest] Auto-matching failed for job ${jobToMatch.id} (${jobToMatch.title}) - may need manual ATS analysis`);
-              // Log failure to activity log
-              await activityLogger.error(
-                `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion`,
-                { jobId: jobToMatch.id, reason: "AI service returned null or failed" },
-                userId
-              );
-            }
-          } catch (err) {
-            failedCount++;
-            failedJobIds.push(jobToMatch.id); // Track failed job
-            console.error(`[Ingest] Error auto-matching job ${jobToMatch.id} (${jobToMatch.title}):`, err);
-            // Log to activity log for visibility
-            await activityLogger.error(
-              `Failed to auto-match job "${jobToMatch.title}" from n8n ingestion`,
-              { jobId: jobToMatch.id, error: err instanceof Error ? err.message : String(err) },
-              userId
-            );
           }
         }
         
@@ -1381,9 +1790,9 @@ export async function registerRoutes(
         // Store failed job IDs in activity log metadata for notification system
         if (failedJobIds.length > 0) {
           await activityLogger.warning(
-            `n8n ingestion complete: ${failedJobIds.length} job(s) failed ATS scanning`,
+            `n8n ingestion complete: ${failedJobIds.length} job(s) failed ATS scanning after retries`,
             { 
-              failedJobIds, 
+              failedJobIds,
               failedCount, 
               matchedCount, 
               total: jobsToMatch.length,

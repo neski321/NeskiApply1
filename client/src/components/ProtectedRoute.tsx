@@ -11,9 +11,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // Only redirect if we're sure the user is not authenticated
     // Give more time to allow auth state to update after login (especially for Railway)
     if (!isLoading && !isAuthenticated) {
-      console.log("[ProtectedRoute] Not authenticated, redirecting to login");
+      console.log("[ProtectedRoute] Not authenticated, redirecting to signup");
       const timer = setTimeout(() => {
-        setLocation("/login");
+        setLocation("/signup");
       }, 500); // Increased delay to give more time for auth check
       return () => clearTimeout(timer);
     } else if (isAuthenticated) {
