@@ -45,9 +45,8 @@ export default function ForgotPassword() {
         description: data.message,
       });
 
-      // In development, automatically open the reset URL in a new tab
+      // Automatically open the reset URL in a new tab
       if (data.resetUrl) {
-        console.log("Reset URL:", data.resetUrl);
         // Open in new tab
         window.open(data.resetUrl, "_blank");
         toast({

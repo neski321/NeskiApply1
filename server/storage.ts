@@ -469,6 +469,15 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getPasswordResetTokenByCode(code: string): Promise<PasswordResetToken | undefined> {
+    const [result] = await db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.code, code))
+      .limit(1);
+    return result;
+  }
+
   async markPasswordResetTokenAsUsed(token: string): Promise<boolean> {
     const result = await db
       .update(passwordResetTokens)
