@@ -250,12 +250,25 @@ export async function registerRoutes(
       // Security: Store code in HTTP-only cookie (more secure than URL parameter)
       // The code expires in 15 minutes and is used to exchange for the actual token
       const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+      
+      // Use same cookie settings as session cookies for Railway compatibility
+      // For Railway/production, use "none" if not explicitly set (required for cross-site cookies)
+      let cookieSameSite: "lax" | "none" | "strict" = "lax";
+      if (process.env.COOKIE_SAME_SITE) {
+        cookieSameSite = process.env.COOKIE_SAME_SITE as "lax" | "none" | "strict";
+      } else if (isProduction) {
+        // Default to "none" for production/Railway to ensure cookies work
+        cookieSameSite = "none";
+      }
+      
       res.cookie("reset_code", code, {
         httpOnly: true, // Prevents JavaScript access (XSS protection)
         secure: isProduction, // Only send over HTTPS in production
-        sameSite: "strict", // CSRF protection
+        sameSite: cookieSameSite, // Use Railway-compatible setting
         maxAge: 15 * 60 * 1000, // 15 minutes
         path: "/reset-password", // Only sent for reset password page
+        // Include domain if specified (for Railway subdomain setups)
+        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
       });
       
       // Security: Only log in development, never in production
