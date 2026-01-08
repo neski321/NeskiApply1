@@ -289,10 +289,19 @@ See [RAILWAY_SETUP.md](./RAILWAY_SETUP.md) for detailed Railway deployment instr
 
 Ensure all required environment variables are set in your deployment platform:
 
+**Required:**
 - `DATABASE_URL` - PostgreSQL connection string
 - `SESSION_SECRET` - Secure random string (required in production)
 - At least one AI API key (Perplexity, Gemini, or OpenRouter)
 - `JSEARCH_API_KEY` and `JSEARCH_RAPIDAPI_HOST` - For job scraping
+
+**Optional (for Railway/custom domains):**
+- `COOKIE_SAME_SITE` - Cookie SameSite setting (`"lax"`, `"none"`, or `"strict"`). Defaults to `"none"` in production for Railway compatibility
+- `COOKIE_DOMAIN` - Cookie domain (only set if using custom domain/subdomain setup)
+- `ALLOWED_ORIGINS` - Comma-separated list of allowed CORS origins (for cross-origin setups)
+
+**Note for Password Reset:**
+The password reset system uses HTTP-only cookies. If your frontend and backend are on different domains/subdomains on Railway, you may need to set `COOKIE_SAME_SITE=none` (this is the default in production). The system automatically detects Railway environment and configures cookies accordingly.
 - `INGEST_KEY` - For n8n integration (if using)
 
 ## 🔗 Integration with n8n
