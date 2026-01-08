@@ -10,28 +10,47 @@ import { Loader2, Lock, ArrowRight, Sparkles, CheckCircle2 } from "lucide-react"
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [token, setToken] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  // Get token from URL query params
+  // Verify reset code from cookie on mount
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tokenParam = params.get("token");
-    if (tokenParam) {
-      setToken(tokenParam);
-    }
+    const verifyCode = async () => {
+      setIsVerifying(true);
+      try {
+        const response = await fetch("/api/auth/reset-password/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
+
+        if (response.ok) {
+          setIsVerified(true);
+        } else {
+          const data = await response.json();
+          setError(data.error || "Invalid or expired reset code. Please request a new password reset.");
+        }
+      } catch (err) {
+        setError("Failed to verify reset code. Please request a new password reset.");
+      } finally {
+        setIsVerifying(false);
+      }
+    };
+
+    verifyCode();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (!token) {
-      setError("Reset token is missing. Please use the link from your email.");
+    if (!isVerified) {
+      setError("Please wait for code verification to complete.");
       return;
     }
 
@@ -40,8 +59,8 @@ export default function ResetPassword() {
       return;
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
@@ -57,7 +76,7 @@ export default function ResetPassword() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ token, newPassword: password }),
+        body: JSON.stringify({ newPassword: password }),
       });
 
       const data = await response.json();
@@ -125,21 +144,40 @@ export default function ResetPassword() {
     );
   }
 
-  if (!token) {
+  if (isVerifying) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/20 p-4">
+        <div className="w-full max-w-md space-y-8">
+          <Card className="border-border/50 shadow-xl bg-card/50 backdrop-blur-sm">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center justify-center space-y-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground text-center">
+                  Verifying reset code...
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isVerified && error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/20 p-4">
         <div className="w-full max-w-md space-y-8">
           <Card className="border-border/50 shadow-xl bg-card/50 backdrop-blur-sm">
             <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl">Invalid Reset Link</CardTitle>
+              <CardTitle className="text-2xl">Invalid Reset Code</CardTitle>
               <CardDescription>
-                The reset link is missing or invalid
+                The reset code is missing, invalid, or expired
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Please use the reset link from your email, or request a new one.
+                  {error}
                 </p>
                 <Button
                   onClick={() => setLocation("/forgot-password")}

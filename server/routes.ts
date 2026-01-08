@@ -209,17 +209,25 @@ export async function registerRoutes(
         });
       }
 
-      // Generate reset token
+      // Generate reset token and short-lived code
       const crypto = await import("crypto");
-      const token = crypto.randomBytes(32).toString("hex");
+      const token = crypto.randomBytes(32).toString("hex"); // Full token (never in URL)
+      const code = crypto.randomBytes(16).toString("hex"); // Short code for secure exchange
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 1); // Token expires in 1 hour
+      const codeExpiresAt = new Date();
+      codeExpiresAt.setMinutes(codeExpiresAt.getMinutes() + 15); // Code expires in 15 minutes
+
+      // Get client IP address for validation
+      const clientIp = req.ip || req.socket.remoteAddress || "unknown";
 
       // Save token to database
       try {
         await storage.createPasswordResetToken({
           userId: user.id,
           token,
+          code,
+          ipAddress: clientIp,
           expiresAt,
           used: false,
         });
@@ -239,12 +247,21 @@ export async function registerRoutes(
         throw dbError;
       }
 
-      // In a real app, you would send an email here with the reset link
-      // For now, we'll return the token in the response (for development/testing)
-      // In production, remove the token from the response and send it via email
-      const resetUrl = `${req.protocol}://${req.get("host")}/reset-password?token=${token}`;
+      // Security: Store code in HTTP-only cookie (more secure than URL parameter)
+      // The code expires in 15 minutes and is used to exchange for the actual token
+      const isProduction = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
+      res.cookie("reset_code", code, {
+        httpOnly: true, // Prevents JavaScript access (XSS protection)
+        secure: isProduction, // Only send over HTTPS in production
+        sameSite: "strict", // CSRF protection
+        maxAge: 15 * 60 * 1000, // 15 minutes
+        path: "/reset-password", // Only sent for reset password page
+      });
       
-      console.log(`[Password Reset] Reset link for user ${username}: ${resetUrl}`);
+      // Security: Only log in development, never in production
+      if (process.env.NODE_ENV === "development") {
+        console.log(`[Password Reset] Code generated for user ${username} (IP: ${clientIp})`);
+      }
       
       // Log activity
       const { activityLogger } = await import("./logger");
@@ -254,11 +271,14 @@ export async function registerRoutes(
         user.id
       );
 
+      // Return reset page URL (no token/code in URL - uses secure cookie instead)
+      const resetUrl = `${req.protocol}://${req.get("host")}/reset-password`;
+      
       res.json({ 
         success: true, 
         message: "If an account with that username exists, a password reset link has been sent.",
-        // Remove this in production - only for development
-        resetUrl: process.env.NODE_ENV === "development" ? resetUrl : undefined
+        // Return URL without token - code is stored in secure HTTP-only cookie
+        resetUrl: resetUrl
       });
     } catch (error) {
       console.error("Error requesting password reset:", error);
@@ -278,8 +298,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Token and new password are required" });
       }
 
-      if (newPassword.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      // Enhanced password validation
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      
+      // Check for common weak passwords
+      const commonPasswords = ["password", "12345678", "qwerty", "abc123", "password123"];
+      if (commonPasswords.includes(newPassword.toLowerCase())) {
+        return res.status(400).json({ error: "Password is too common. Please choose a stronger password." });
       }
 
       // Find token
@@ -310,8 +337,11 @@ export async function registerRoutes(
         return res.status(500).json({ error: "Failed to update password" });
       }
 
-      // Mark token as used
-      await storage.markPasswordResetTokenAsUsed(token);
+      // Mark token as used (using the actual token, not the code)
+      await storage.markPasswordResetTokenAsUsed(resetToken.token);
+      
+      // Clear the reset code cookie
+      res.clearCookie("reset_code");
 
       // Log activity
       const { activityLogger } = await import("./logger");

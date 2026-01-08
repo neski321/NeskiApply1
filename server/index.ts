@@ -2,6 +2,15 @@
 import "dotenv/config";
 
 import express, { type Request, Response, NextFunction } from "express";
+
+// Extend Express Request type to include cookies
+declare global {
+  namespace Express {
+    interface Request {
+      cookies?: { [key: string]: string };
+    }
+  }
+}
 import passport from "passport";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -91,6 +100,18 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
+// Rate limiting for password reset endpoints
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 3, // Limit each IP to 3 password reset requests per 15 minutes
+  message: "Too many password reset requests, please try again later.",
+  skipSuccessfulRequests: false, // Count all requests
+});
+
+app.use("/api/auth/forgot-password", passwordResetLimiter);
+app.use("/api/auth/reset-password", passwordResetLimiter);
+app.use("/api/auth/reset-password/verify", passwordResetLimiter);
+
 app.use(
   express.json({
     limit: "50mb", // Increased limit for n8n ingest endpoint which may send large job arrays
@@ -101,6 +122,23 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+
+// Cookie parser for password reset codes (HTTP-only cookies)
+// Note: We parse cookies manually to avoid adding another dependency
+app.use((req, res, next) => {
+  if (req.headers.cookie) {
+    req.cookies = {};
+    req.headers.cookie.split(';').forEach(cookie => {
+      const parts = cookie.trim().split('=');
+      if (parts.length === 2) {
+        req.cookies[parts[0]] = decodeURIComponent(parts[1]);
+      }
+    });
+  } else {
+    req.cookies = {};
+  }
+  next();
+});
 
 // Security: CORS configuration
 app.use((req, res, next) => {

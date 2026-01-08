@@ -15,6 +15,8 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
+  code: text("code"), // Short-lived code for secure exchange (optional, for enhanced security)
+  ipAddress: text("ip_address"), // Store IP for validation
   expiresAt: timestamp("expires_at").notNull(),
   used: boolean("used").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
