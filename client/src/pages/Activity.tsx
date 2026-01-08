@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Clock, Upload, Send, AlertCircle, FileText, Briefcase, Wand2, User } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getActivityLogs, type ActivityLogWithUser } from "@/lib/api";
-import { formatDistanceToNow } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { useAuth } from "@/hooks/use-auth";
 
 const getIconForType = (type: string) => {
@@ -52,7 +52,7 @@ export default function Activity() {
   
   const { data: logs = [], isLoading } = useQuery<ActivityLogWithUser[]>({
     queryKey: ["activity"],
-    queryFn: () => getActivityLogs(200),
+    queryFn: () => getActivityLogs(300),
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 
@@ -152,7 +152,11 @@ export default function Activity() {
                                     )}
                                   </div>
                                   <p className="text-xs text-muted-foreground font-mono">
-                                    {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
+                                    {formatInTimeZone(
+                                      new Date(log.createdAt),
+                                      "America/New_York",
+                                      "MMM d, yyyy 'at' h:mm:ss a"
+                                    )} EST
                                   </p>
                                 </div>
                               </div>
