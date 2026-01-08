@@ -77,26 +77,66 @@ export async function callAIWithFallback(
         }
         console.log("Perplexity failed, trying next provider in chain...");
       } catch (error: any) {
-        // Log 401/unauthorized errors to activity log
-        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid") || 
-            error?.message?.includes("401") || error?.status === 401) {
-          try {
-            const { activityLogger } = await import("./logger");
-            await activityLogger.error(
-              "Perplexity API key is invalid or unauthorized",
-              { provider: "perplexity", error: "401_unauthorized", errorMessage: error?.message },
-              userId
-            );
-          } catch (logError) {
-            console.error("Failed to log Perplexity authorization error:", logError);
+        const errorMessage = error?.message || String(error);
+        const errorStatus = error?.status || error?.response?.status;
+        
+        // Determine error type
+        const isUnauthorized = errorMessage.includes("unauthorized") || 
+                              errorMessage.includes("invalid") || 
+                              errorMessage.includes("401") || 
+                              errorStatus === 401;
+        const isServiceUnavailable = errorMessage.includes("503") || 
+                                     errorMessage.includes("overloaded") || 
+                                     errorMessage.includes("Service Unavailable") ||
+                                     errorStatus === 503;
+        const isRateLimit = errorMessage.includes("rate limit") || 
+                           errorMessage.includes("quota") || 
+                           errorMessage.includes("429") ||
+                           errorStatus === 429;
+        
+        // Log all errors to activity log
+        try {
+          const { activityLogger } = await import("./logger");
+          const nextProvider = i < providers.length - 1 ? providers[i + 1] : null;
+          
+          let errorType = "api_error";
+          let logMessage = "Perplexity API error";
+          
+          if (isUnauthorized) {
+            errorType = "401_unauthorized";
+            logMessage = "Perplexity API key is invalid or unauthorized";
+          } else if (isServiceUnavailable) {
+            errorType = "503_service_unavailable";
+            logMessage = "Perplexity API is overloaded or unavailable";
+          } else if (isRateLimit) {
+            errorType = "429_rate_limit";
+            logMessage = "Perplexity API rate limit exceeded";
           }
+          
+          if (nextProvider) {
+            logMessage += `. Switching to ${nextProvider}...`;
+          }
+          
+          await activityLogger.error(
+            logMessage,
+            { 
+              provider: "perplexity", 
+              error: errorType, 
+              errorMessage: errorMessage,
+              nextProvider: nextProvider || null
+            },
+            userId
+          );
+        } catch (logError) {
+          console.error("Failed to log Perplexity error:", logError);
         }
+        
         // If this is the last provider, return null (don't re-throw, let fallback continue)
         if (i === providers.length - 1) {
           console.log("Perplexity failed and it's the last provider in chain");
           return null;
         }
-        console.log("Perplexity failed (may be invalid key), trying next provider in chain...");
+        console.log("Perplexity failed, trying next provider in chain...");
       }
     } else if (provider === "gemini") {
       try {
@@ -117,26 +157,66 @@ export async function callAIWithFallback(
         }
         console.log("Gemini failed, trying next provider in chain...");
       } catch (error: any) {
-        // Log 401/unauthorized errors to activity log
-        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid") || 
-            error?.message?.includes("401") || error?.status === 401) {
-          try {
-            const { activityLogger } = await import("./logger");
-            await activityLogger.error(
-              "Gemini API key is invalid or unauthorized",
-              { provider: "gemini", error: "401_unauthorized", errorMessage: error?.message },
-              userId
-            );
-          } catch (logError) {
-            console.error("Failed to log Gemini authorization error:", logError);
+        const errorMessage = error?.message || String(error);
+        const errorStatus = error?.status || error?.response?.status;
+        
+        // Determine error type
+        const isUnauthorized = errorMessage.includes("unauthorized") || 
+                              errorMessage.includes("invalid") || 
+                              errorMessage.includes("401") || 
+                              errorStatus === 401;
+        const isServiceUnavailable = errorMessage.includes("503") || 
+                                     errorMessage.includes("overloaded") || 
+                                     errorMessage.includes("Service Unavailable") ||
+                                     errorStatus === 503;
+        const isRateLimit = errorMessage.includes("rate limit") || 
+                           errorMessage.includes("quota") || 
+                           errorMessage.includes("429") ||
+                           errorStatus === 429;
+        
+        // Log all errors to activity log
+        try {
+          const { activityLogger } = await import("./logger");
+          const nextProvider = i < providers.length - 1 ? providers[i + 1] : null;
+          
+          let errorType = "api_error";
+          let logMessage = "Gemini API error";
+          
+          if (isUnauthorized) {
+            errorType = "401_unauthorized";
+            logMessage = "Gemini API key is invalid or unauthorized";
+          } else if (isServiceUnavailable) {
+            errorType = "503_service_unavailable";
+            logMessage = "Gemini API is overloaded or unavailable";
+          } else if (isRateLimit) {
+            errorType = "429_rate_limit";
+            logMessage = "Gemini API rate limit exceeded";
           }
+          
+          if (nextProvider) {
+            logMessage += `. Switching to ${nextProvider}...`;
+          }
+          
+          await activityLogger.error(
+            logMessage,
+            { 
+              provider: "gemini", 
+              error: errorType, 
+              errorMessage: errorMessage,
+              nextProvider: nextProvider || null
+            },
+            userId
+          );
+        } catch (logError) {
+          console.error("Failed to log Gemini error:", logError);
         }
+        
         // If this is the last provider, return null (don't re-throw, let fallback continue)
         if (i === providers.length - 1) {
           console.log("Gemini failed and it's the last provider in chain");
           return null;
         }
-        console.log("Gemini failed (may be invalid key), trying next provider in chain...");
+        console.log("Gemini failed, trying next provider in chain...");
       }
     } else if (provider === "openrouter") {
       try {
@@ -159,26 +239,66 @@ export async function callAIWithFallback(
         }
         console.log("OpenRouter failed, trying next provider in chain...");
       } catch (error: any) {
-        // Log 401/unauthorized errors to activity log
-        if (error?.message?.includes("unauthorized") || error?.message?.includes("invalid") || 
-            error?.message?.includes("401") || error?.status === 401) {
-          try {
-            const { activityLogger } = await import("./logger");
-            await activityLogger.error(
-              "OpenRouter API key is invalid or unauthorized",
-              { provider: "openrouter", error: "401_unauthorized", errorMessage: error?.message },
-              userId
-            );
-          } catch (logError) {
-            console.error("Failed to log OpenRouter authorization error:", logError);
+        const errorMessage = error?.message || String(error);
+        const errorStatus = error?.status || error?.response?.status;
+        
+        // Determine error type
+        const isUnauthorized = errorMessage.includes("unauthorized") || 
+                              errorMessage.includes("invalid") || 
+                              errorMessage.includes("401") || 
+                              errorStatus === 401;
+        const isServiceUnavailable = errorMessage.includes("503") || 
+                                     errorMessage.includes("overloaded") || 
+                                     errorMessage.includes("Service Unavailable") ||
+                                     errorStatus === 503;
+        const isRateLimit = errorMessage.includes("rate limit") || 
+                           errorMessage.includes("quota") || 
+                           errorMessage.includes("429") ||
+                           errorStatus === 429;
+        
+        // Log all errors to activity log
+        try {
+          const { activityLogger } = await import("./logger");
+          const nextProvider = i < providers.length - 1 ? providers[i + 1] : null;
+          
+          let errorType = "api_error";
+          let logMessage = "OpenRouter API error";
+          
+          if (isUnauthorized) {
+            errorType = "401_unauthorized";
+            logMessage = "OpenRouter API key is invalid or unauthorized";
+          } else if (isServiceUnavailable) {
+            errorType = "503_service_unavailable";
+            logMessage = "OpenRouter API is overloaded or unavailable";
+          } else if (isRateLimit) {
+            errorType = "429_rate_limit";
+            logMessage = "OpenRouter API rate limit exceeded";
           }
+          
+          if (nextProvider) {
+            logMessage += `. Switching to ${nextProvider}...`;
+          }
+          
+          await activityLogger.error(
+            logMessage,
+            { 
+              provider: "openrouter", 
+              error: errorType, 
+              errorMessage: errorMessage,
+              nextProvider: nextProvider || null
+            },
+            userId
+          );
+        } catch (logError) {
+          console.error("Failed to log OpenRouter error:", logError);
         }
+        
         // If this is the last provider, return null
         if (i === providers.length - 1) {
           console.log("OpenRouter failed and it's the last provider in chain");
           return null;
         }
-        console.log("OpenRouter failed (may be invalid key), trying next provider in chain...");
+        console.log("OpenRouter failed, trying next provider in chain...");
       }
     } else {
       console.warn(`Unknown provider in chain: "${provider}", skipping...`);
@@ -431,14 +551,15 @@ async function tryGemini(messages: AIChatMessage[], model: string, userId: strin
 
     return content;
   } catch (error: any) {
-    // Check if it's an authorization error (401)
     const errorMessage = error?.message || String(error);
+    const errorStatus = error?.status || error?.response?.status;
+    
+    // Check if it's an authorization error (401)
     const isUnauthorized = errorMessage.includes("unauthorized") || 
                           errorMessage.includes("not authorized") ||
                           errorMessage.includes("API_KEY_INVALID") ||
                           errorMessage.includes("401") ||
-                          error?.status === 401 ||
-                          error?.response?.status === 401;
+                          errorStatus === 401;
     
     if (isUnauthorized) {
       console.error("Gemini API authorization error (401): Invalid or expired API key");
@@ -456,7 +577,40 @@ async function tryGemini(messages: AIChatMessage[], model: string, userId: strin
       // Throw a specific error so it can be caught and handled appropriately
       throw new Error("Gemini API key is invalid or unauthorized. Please check your API key in Settings.");
     }
-    console.error("Gemini API error:", error?.message || String(error));
+    
+    // Log all other errors (503, rate limits, etc.) to activity log
+    const isServiceUnavailable = errorMessage.includes("503") || 
+                                 errorMessage.includes("overloaded") || 
+                                 errorMessage.includes("Service Unavailable") ||
+                                 errorStatus === 503;
+    const isRateLimit = errorMessage.includes("rate limit") || 
+                       errorMessage.includes("quota") || 
+                       errorMessage.includes("429") ||
+                       errorStatus === 429;
+    
+    if (isServiceUnavailable || isRateLimit) {
+      try {
+        const { activityLogger } = await import("./logger");
+        const errorType = isServiceUnavailable ? "503_service_unavailable" : "429_rate_limit";
+        const logMessage = isServiceUnavailable 
+          ? "Gemini API is overloaded or unavailable"
+          : "Gemini API rate limit exceeded";
+        
+        await activityLogger.error(
+          logMessage,
+          { 
+            provider: "gemini", 
+            error: errorType, 
+            errorMessage: errorMessage
+          },
+          userId
+        );
+      } catch (logError) {
+        console.error("Failed to log Gemini error:", logError);
+      }
+    }
+    
+    console.error("Gemini API error:", errorMessage);
     return null;
   }
 }

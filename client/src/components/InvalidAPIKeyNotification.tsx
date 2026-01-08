@@ -53,13 +53,24 @@ export function InvalidAPIKeyNotification() {
         const messageLower = log.message?.toLowerCase() || "";
         
         // Check metadata first (most reliable)
-        if (metadata?.error === "401_unauthorized" || metadata?.error === "401") {
+        if (metadata?.error === "401_unauthorized" || 
+            metadata?.error === "401" ||
+            metadata?.error === "503_service_unavailable" ||
+            metadata?.error === "503" ||
+            metadata?.error === "429_rate_limit" ||
+            metadata?.error === "429" ||
+            metadata?.error === "api_error") {
           return true;
         }
         
-        // Check message for API key errors
-        if ((messageLower.includes("invalid") || messageLower.includes("unauthorized")) && 
-            (messageLower.includes("api key") || messageLower.includes("perplexity") || 
+        // Check message for API key errors and service errors
+        if ((messageLower.includes("invalid") || 
+             messageLower.includes("unauthorized") ||
+             messageLower.includes("overloaded") ||
+             messageLower.includes("unavailable") ||
+             messageLower.includes("rate limit") ||
+             messageLower.includes("quota")) && 
+            (messageLower.includes("api") || messageLower.includes("perplexity") || 
              messageLower.includes("gemini") || messageLower.includes("openrouter"))) {
           return true;
         }
@@ -142,14 +153,18 @@ export function InvalidAPIKeyNotification() {
     <Alert className="mb-4 border-red-500/50 bg-red-500/10">
       <AlertCircle className="h-4 w-4 text-red-500" />
       <AlertTitle className="text-red-500 font-semibold">
-        Invalid API Key Detected
+        AI Provider Issue Detected
       </AlertTitle>
       <AlertDescription className="mt-2">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex-1">
             <p className="text-sm text-muted-foreground">
-              Your <strong>{providerName}</strong> API key is invalid or unauthorized. 
-              The system has automatically switched to a fallback provider, but you should update your API key in Settings.
+              Your <strong>{providerName}</strong> API {latestError.message?.toLowerCase().includes("overloaded") || latestError.message?.toLowerCase().includes("unavailable") 
+                ? "is experiencing issues (overloaded or unavailable)" 
+                : latestError.message?.toLowerCase().includes("rate limit")
+                ? "rate limit has been exceeded"
+                : "key is invalid or unauthorized"}. 
+              The system has automatically switched to a fallback provider{apiKeyErrors.length > 1 ? ", but you should check your API settings" : ""}.
             </p>
             {apiKeyErrors.length > 1 && (
               <p className="text-xs text-muted-foreground mt-1">
