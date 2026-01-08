@@ -441,10 +441,15 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
  */
 export async function logAPICall(
   context: string, 
-  provider: "perplexity" | "gemini" | "jsearch" | "n8n",
+  provider: "perplexity" | "gemini" | "openrouter" | "jsearch" | "n8n",
   metadata?: Record<string, any>, 
   userId?: string
 ): Promise<void> {
+  if (!userId) {
+    console.error(`[logAPICall] Missing userId for ${provider} API call: ${context}`);
+    return;
+  }
+  
   await activityLogger.info(`API call: ${context}`, {
     ...metadata,
     apiCall: true,

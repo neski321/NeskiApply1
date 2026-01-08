@@ -26,7 +26,7 @@ export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
+  const [appliedFilter, setAppliedFilter] = useState<string>("unapplied"); // "all", "applied", "unapplied" - default to unapplied to hide applied jobs
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [showSkillGapModal, setShowSkillGapModal] = useState(false);
   
@@ -44,7 +44,7 @@ export default function Dashboard() {
     return thresholdSetting ? parseInt(thresholdSetting.value) : 80;
   }, [settings]);
   
-  // Fetch all jobs (without applied filter) to check if high priority matches exist
+  // Fetch all jobs (without applied filter) to check if high priority matches exist and for replacement logic
   const { data: allJobsUnfiltered = [] } = useQuery({
     queryKey: ["jobs", "all"],
     queryFn: () => getJobs(),
@@ -60,6 +60,8 @@ export default function Dashboard() {
       } else if (appliedFilter === "unapplied") {
         filters.isApplied = false;
       }
+      // "all" means no filter, but we still want to exclude applied by default
+      // Actually, "all" should show everything, but we'll handle that in the UI
       return getJobs(filters);
     },
   });
@@ -68,6 +70,15 @@ export default function Dashboard() {
   const jobs = useMemo(() => {
     return allJobs.filter(j => j.matchScore && j.matchScore >= highPriorityThreshold);
   }, [allJobs, highPriorityThreshold]);
+
+  // When showing applied jobs, also get unapplied jobs to fill remaining spots
+  const unappliedJobsForReplacement = useMemo(() => {
+    if (appliedFilter !== "applied") return [];
+    const unapplied = allJobsUnfiltered.filter(
+      j => !j.isApplied && j.matchScore && j.matchScore >= highPriorityThreshold
+    );
+    return unapplied.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+  }, [allJobsUnfiltered, appliedFilter, highPriorityThreshold]);
 
   // Check if there are any high priority matches at all (regardless of applied status)
   const hasHighPriorityMatches = useMemo(() => {
@@ -103,10 +114,25 @@ export default function Dashboard() {
     },
   });
 
-  // Get top jobs (already filtered, just sort by score and take top 5)
-  const topJobs = jobs
-    .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
-    .slice(0, 5);
+  // Get top jobs with replacement logic for applied filter
+  const topJobs = useMemo(() => {
+    if (appliedFilter === "applied") {
+      // When showing applied jobs, show them first, then fill remaining spots with unapplied high-scoring jobs
+      const appliedJobsSorted = jobs
+        .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+      
+      // Fill remaining spots (up to 5 total) with unapplied jobs
+      const remainingSpots = 5 - appliedJobsSorted.length;
+      const replacementJobs = unappliedJobsForReplacement.slice(0, remainingSpots);
+      
+      return [...appliedJobsSorted, ...replacementJobs].slice(0, 5);
+    } else {
+      // For "unapplied" or "all", just show top 5 by score
+      return jobs
+        .sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0))
+        .slice(0, 5);
+    }
+  }, [jobs, appliedFilter, unappliedJobsForReplacement]);
 
   // Generate chart data from last 7 days
   const generateChartData = () => {
@@ -267,9 +293,9 @@ export default function Dashboard() {
                     <SelectValue placeholder="All jobs" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="unapplied">Not Applied (Default)</SelectItem>
+                    <SelectItem value="applied">Applied Only</SelectItem>
                     <SelectItem value="all">All Jobs</SelectItem>
-                    <SelectItem value="applied">Applied</SelectItem>
-                    <SelectItem value="unapplied">Not Applied</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button variant="ghost" size="sm" className="text-muted-foreground">

@@ -58,7 +58,9 @@ export default function Settings() {
     headlessMode: true,
     aiProviderPreference: "auto",
     perplexityApiKey: "",
+    perplexityModel: "sonar-pro",
     geminiApiKey: "",
+    geminiModel: "gemini-2.5-flash",
     openrouterApiKey: "",
     openrouterModel: "meta-llama/llama-3.2-3b-instruct:free",
     resumeOptimizationProvider: "perplexity",
@@ -158,7 +160,9 @@ export default function Settings() {
         headlessMode: settingsMap.headless_mode === "true",
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
         perplexityApiKey: settingsMap.perplexity_api_key || "",
+        perplexityModel: settingsMap.perplexity_model || "sonar-pro",
         geminiApiKey: settingsMap.gemini_api_key || "",
+        geminiModel: settingsMap.gemini_model || "gemini-2.5-flash",
         openrouterApiKey: settingsMap.openrouter_api_key || "",
         openrouterModel: settingsMap.openrouter_model || "meta-llama/llama-3.2-3b-instruct:free",
         resumeOptimizationProvider: settingsMap.resume_optimization_provider || "gemini",
@@ -301,7 +305,9 @@ export default function Settings() {
       headless_mode: formData.headlessMode.toString(),
       ai_provider_preference: formData.aiProviderPreference,
       perplexity_api_key: formData.perplexityApiKey,
+      perplexity_model: formData.perplexityModel,
       gemini_api_key: formData.geminiApiKey,
+      gemini_model: formData.geminiModel,
       openrouter_api_key: formData.openrouterApiKey,
       openrouter_model: formData.openrouterModel,
       resume_optimization_provider: formData.resumeOptimizationProvider,
@@ -642,19 +648,36 @@ export default function Settings() {
                     onChange={(e) => setFormData({ ...formData, aiProviderPreference: e.target.value })}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <option value="auto">Auto (Perplexity → OpenRouter → Gemini)</option>
-                    <option value="perplexity">Perplexity Only</option>
-                    <option value="openrouter">OpenRouter Only</option>
-                    <option value="gemini">Gemini Only</option>
+                    <optgroup label="Single Provider">
+                      <option value="perplexity">Perplexity Only</option>
+                      <option value="gemini">Gemini Only</option>
+                      <option value="openrouter">OpenRouter Only</option>
+                    </optgroup>
+                    <optgroup label="Two Providers">
+                      <option value="perplexity,gemini">Perplexity → Gemini</option>
+                      <option value="perplexity,openrouter">Perplexity → OpenRouter</option>
+                      <option value="gemini,openrouter">Gemini → OpenRouter</option>
+                    </optgroup>
+                    <optgroup label="All Providers">
+                      <option value="auto">Auto (Perplexity → Gemini → OpenRouter)</option>
+                    </optgroup>
                   </select>
                   <p className="text-xs text-muted-foreground">
-                    {formData.aiProviderPreference === "auto" 
-                      ? "Automatically uses Perplexity first, falls back to OpenRouter then Gemini if needed."
+                    {formData.aiProviderPreference === "auto" || formData.aiProviderPreference === "perplexity,gemini,openrouter"
+                      ? "Automatically uses Perplexity first, falls back to Gemini then OpenRouter if needed."
                       : formData.aiProviderPreference === "perplexity"
                       ? "Always uses Perplexity. No fallback to other providers."
+                      : formData.aiProviderPreference === "gemini"
+                      ? "Always uses Gemini. No fallback to other providers."
                       : formData.aiProviderPreference === "openrouter"
                       ? "Always uses OpenRouter. No fallback to other providers."
-                      : "Always uses Gemini. No fallback to other providers."}
+                      : formData.aiProviderPreference === "perplexity,gemini"
+                      ? "Uses Perplexity first, falls back to Gemini if Perplexity fails."
+                      : formData.aiProviderPreference === "perplexity,openrouter"
+                      ? "Uses Perplexity first, falls back to OpenRouter if Perplexity fails."
+                      : formData.aiProviderPreference === "gemini,openrouter"
+                      ? "Uses Gemini first, falls back to OpenRouter if Gemini fails."
+                      : "Automatically uses Perplexity first, falls back to Gemini then OpenRouter if needed."}
                   </p>
                 </div>
 
@@ -694,6 +717,35 @@ export default function Settings() {
                   </div>
                 </div>
 
+                {formData.perplexityApiKey && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Perplexity Model
+                      <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-semibold">PRO MODELS USE CREDITS</span>
+                    </Label>
+                    <select
+                      value={formData.perplexityModel}
+                      onChange={(e) => setFormData({ ...formData, perplexityModel: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="sonar">Sonar - Fast (Free tier)</option>
+                      <option value="sonar-pro">Sonar Pro - Best Quality (Uses credits)</option>
+                      <option value="sonar-reasoning">Sonar Reasoning - Advanced (Uses credits)</option>
+                    </select>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
+                      <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        Pro Models Use Credits Faster
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Sonar Pro</strong> and <strong>Sonar Reasoning</strong> are premium models that consume credits at a higher rate than the free <strong>Sonar</strong> model.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Sonar</strong> (free) is recommended for most use cases. Only use Pro models if you need the highest quality and have sufficient credits.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
                     Gemini API Key (Backup)
@@ -727,6 +779,36 @@ export default function Settings() {
                     </p>
                   </div>
                 </div>
+
+                {formData.geminiApiKey && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Gemini Model
+                      <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-semibold">PRO MODELS USE CREDITS</span>
+                    </Label>
+                    <select
+                      value={formData.geminiModel}
+                      onChange={(e) => setFormData({ ...formData, geminiModel: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash - Fast (Free tier)</option>
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro - Best Quality (Uses credits)</option>
+                      <option value="gemini-1.5-flash">Gemini 1.5 Flash - Fast (Free tier)</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro - High Quality (Uses credits)</option>
+                    </select>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
+                      <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        Pro Models Use Credits Faster
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Gemini Pro</strong> models consume credits at a higher rate than the free <strong>Flash</strong> models.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        <strong>Flash</strong> models are recommended for most use cases. Only use Pro models if you need the highest quality and have sufficient credits.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-border/50"></div>
 
@@ -766,15 +848,15 @@ export default function Settings() {
                       onChange={(e) => setFormData({ ...formData, openrouterModel: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="meta-llama/llama-3.2-3b-instruct:free">⚡ Llama 3.2 3B - Fastest</option>
-                      <option value="meta-llama/llama-3.2-1b-instruct:free">⚡ Llama 3.2 1B - Ultra Fast</option>
-                      <option value="google/gemma-2-9b-it:free">⚖️ Gemma 2 9B - Balanced</option>
-                      <option value="mistralai/mistral-7b-instruct:free">🎯 Mistral 7B - High Quality</option>
-                      <option value="qwen/qwen-2-7b-instruct:free">🔬 Qwen 2 7B - Experimental</option>
+                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B - Fastest</option>
+                      <option value="meta-llama/llama-3.2-1b-instruct:free">Llama 3.2 1B - Ultra Fast</option>
+                      <option value="google/gemma-2-9b-it:free">Gemma 2 9B - Balanced</option>
+                      <option value="mistralai/mistral-7b-instruct:free">Mistral 7B - High Quality</option>
+                      <option value="qwen/qwen-2-7b-instruct:free">Qwen 2 7B - Experimental</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                        ⚠️ Important: FREE Models Only (Not Available in Direct APIs)
+                        Important: FREE Models Only (Not Available in Direct APIs)
                       </p>
                       <p className="text-xs text-muted-foreground">
                         These models aren't available through direct APIs (no Gemini/Perplexity duplicates). All end with <code className="bg-muted px-1 py-0.5 rounded text-[10px]">:free</code> and are 100% free.
@@ -783,7 +865,7 @@ export default function Settings() {
                         <strong>Strict Limits:</strong> 50 requests/day (enforced). Usage is blocked immediately when limit is reached.
                       </p>
                       <p className="text-xs text-red-600 dark:text-red-400 font-medium">
-                        🔒 App will automatically refuse requests once daily limit is hit - no overages possible!
+                        App will automatically refuse requests once daily limit is hit - no overages possible!
                       </p>
                     </div>
                   </div>

@@ -28,7 +28,7 @@ export default function JobFeed() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [minMatchScore, setMinMatchScore] = useState<number | undefined>(undefined);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [appliedFilter, setAppliedFilter] = useState<string>("all"); // "all", "applied", "unapplied"
+  const [appliedFilter, setAppliedFilter] = useState<string>("unapplied"); // "all", "applied", "unapplied" - default to unapplied to hide applied jobs
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company"
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -44,11 +44,13 @@ export default function JobFeed() {
       if (minMatchScore !== undefined) {
         filters.minMatchScore = minMatchScore;
       }
+      // Default behavior: hide applied jobs unless explicitly filtering for them
       if (appliedFilter === "applied") {
         filters.isApplied = true;
       } else if (appliedFilter === "unapplied") {
         filters.isApplied = false;
       }
+      // "all" means show everything (including applied), but this is only when user explicitly selects it
       return getJobs(filters);
     },
   });
@@ -241,9 +243,9 @@ export default function JobFeed() {
                         <SelectValue placeholder="All jobs" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="unapplied">Not Applied (Default)</SelectItem>
+                        <SelectItem value="applied">Applied Only</SelectItem>
                         <SelectItem value="all">All Jobs</SelectItem>
-                        <SelectItem value="applied">Applied</SelectItem>
-                        <SelectItem value="unapplied">Not Applied</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
