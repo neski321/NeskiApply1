@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X } from "lucide-react";
+import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -19,7 +19,6 @@ export default function Settings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [location] = useLocation();
-  const [isSaving, setIsSaving] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [showN8nNotice, setShowN8nNotice] = useState(() => {
     // Check localStorage to see if notice has been dismissed
@@ -75,6 +74,7 @@ export default function Settings() {
 
   // Store original form data to compare against
   const originalFormDataRef = useRef<typeof formData | null>(null);
+  const isSavingRef = useRef(false); // Track if we're currently saving to prevent race conditions
 
   const { data: settings = [] } = useQuery({
     queryKey: ["settings"],
@@ -102,6 +102,11 @@ export default function Settings() {
   }, [requiredSettings]);
 
   useEffect(() => {
+    // Don't update formData if we're currently saving (to prevent race condition)
+    if (isSavingRef.current) {
+      return;
+    }
+    
     if (settings.length > 0) {
       const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));
       
@@ -178,9 +183,30 @@ export default function Settings() {
         discordWebhook: settingsMap.discord_webhook || "",
       };
       
-      setFormData(loadedFormData);
-      // Store original data for comparison
-      originalFormDataRef.current = loadedFormData;
+      // Only update formData on initial load (when originalFormDataRef is null)
+      // or when formData matches originalFormDataRef (meaning no unsaved changes)
+      // This prevents overwriting user edits when settings are refetched after save
+      if (!originalFormDataRef.current) {
+        // Initial load - set both formData and ref
+        setFormData(loadedFormData);
+        originalFormDataRef.current = loadedFormData;
+      } else {
+        // Check if formData matches the original (no unsaved changes)
+        const formDataStr = JSON.stringify(formData);
+        const originalStr = JSON.stringify(originalFormDataRef.current);
+        const hasUnsavedChanges = formDataStr !== originalStr;
+        
+        if (!hasUnsavedChanges) {
+          // No unsaved changes - safe to update both formData and ref
+          // This happens when settings are refetched after save
+          setFormData(loadedFormData);
+          originalFormDataRef.current = loadedFormData;
+        } else {
+          // User has unsaved changes - only update the ref, preserve formData
+          // The ref is used for comparison in hasChanges
+          originalFormDataRef.current = loadedFormData;
+        }
+      }
     }
   }, [settings]);
 
@@ -231,27 +257,43 @@ export default function Settings() {
   }, [formData]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: Record<string, string>) => {
-      const promises = Object.entries(data).map(([key, value]) => 
+    mutationFn: async (data: { settings: Record<string, string>; savedFormData: typeof formData }) => {
+      const promises = Object.entries(data.settings).map(([key, value]) => 
         setSetting(key, value)
       );
       await Promise.all(promises);
+      return data.savedFormData; // Return the form data that was saved
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
-      // Invalidate jobs queries so Dashboard refetches with new threshold
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      // Update original form data ref after successful save
-      originalFormDataRef.current = { ...formData };
+    onSuccess: (savedFormData) => {
+      // Update both formData and originalFormDataRef to keep them in sync
+      // This ensures hasChanges works correctly after save
+      setFormData(savedFormData);
+      originalFormDataRef.current = savedFormData;
+      
+      // Mark that we're no longer saving (after updating state)
+      setTimeout(() => {
+        isSavingRef.current = false;
+      }, 0);
+      
+      // Invalidate queries after a short delay to allow state updates to complete
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["settings"] });
+        // Invalidate jobs queries so Dashboard refetches with new threshold
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      }, 200);
+      
       toast({
         title: "Settings Saved",
         description: "Your configuration has been updated successfully.",
       });
     },
     onError: (error: Error) => {
+      // Mark that we're no longer saving on error
+      isSavingRef.current = false;
+      
       toast({
-        title: "Error",
-        description: error.message,
+        title: "Error saving settings",
+        description: error.message || "Failed to save settings. Please try again.",
         variant: "destructive",
       });
     },
@@ -336,7 +378,16 @@ export default function Settings() {
   });
 
   const handleSave = async () => {
-    setIsSaving(true);
+    // Prevent multiple concurrent saves
+    if (saveMutation.isPending || isSavingRef.current) {
+      return;
+    }
+    
+    // Mark that we're saving to prevent race conditions
+    isSavingRef.current = true;
+    
+    // Capture the current formData before saving
+    const currentFormData = { ...formData };
     
     const settingsToSave = {
       job_titles: formData.jobTitles,
@@ -375,23 +426,40 @@ export default function Settings() {
       discord_webhook: formData.discordWebhook,
     };
 
-    await saveMutation.mutateAsync(settingsToSave);
-    
-    // Reschedule cron jobs if schedule settings changed
     try {
-      await rescheduleCronJob(); // This reschedules both scraping and reminder cron jobs
+      // Save settings with the current formData to update the ref correctly
+      await saveMutation.mutateAsync({ 
+        settings: settingsToSave,
+        savedFormData: currentFormData 
+      });
+      
+      // Reschedule cron jobs if schedule settings changed
+      try {
+        await rescheduleCronJob(); // This reschedules both scraping and reminder cron jobs
+      } catch (error) {
+        console.error("Failed to reschedule cron job:", error);
+        // Don't fail the save if cron reschedule fails
+      }
+      
+      // Refresh required settings status after saving
+      if (isOnboarding) {
+        queryClient.invalidateQueries({ queryKey: ["requiredSettings"] });
+      }
     } catch (error) {
-      console.error("Failed to reschedule cron job:", error);
-      // Don't fail the save if cron reschedule fails
+      // Mark that we're no longer saving on error
+      isSavingRef.current = false;
+      
+      // Error is already handled in mutation's onError
+      console.error("Failed to save settings:", error);
     }
-    
-    // Refresh required settings status after saving
-    if (isOnboarding) {
-      queryClient.invalidateQueries({ queryKey: ["requiredSettings"] });
-    }
-    
-    setIsSaving(false);
   };
+  
+  // Reset mutation success state when formData changes (user makes new changes)
+  useEffect(() => {
+    if (saveMutation.isSuccess && hasChanges) {
+      saveMutation.reset();
+    }
+  }, [hasChanges, saveMutation.isSuccess]);
 
   return (
     <Layout>
@@ -417,10 +485,24 @@ export default function Settings() {
             <Button 
               className="gap-2 text-sm sm:text-base" 
               onClick={handleSave} 
-              disabled={isSaving || !hasChanges}
+              disabled={saveMutation.isPending || !hasChanges}
             >
-              {isSaving ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-              {isSaving ? "Saved!" : "Save Changes"}
+              {saveMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : saveMutation.isSuccess ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
             </Button>
           </div>
         </div>
