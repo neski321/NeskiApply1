@@ -3,7 +3,7 @@ import { NAV_ITEMS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { Bot, Menu, LogOut, Shield } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { getAPIUsage } from "@/lib/api";
@@ -12,12 +12,29 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { APIUsageModal } from "@/components/APIUsageModal";
 
+type ProviderKey = "perplexity" | "gemini" | "openrouter" | "jsearch" | "n8n";
+
+interface ProviderDisplay {
+  key: ProviderKey;
+  name: string;
+  usage: {
+    dailyCount: number;
+    dailyLimit: number;
+    usagePercentage: number;
+    resetTime?: Date;
+    // For JSearch, these are monthly instead of daily
+    monthlyCount?: number;
+    monthlyLimit?: number;
+  };
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [showAPIUsageModal, setShowAPIUsageModal] = useState(false);
+  const [currentProviderIndex, setCurrentProviderIndex] = useState(0);
 
   // Fetch API usage
   const { data: apiUsage } = useQuery({
@@ -25,6 +42,115 @@ export function Layout({ children }: { children: React.ReactNode }) {
     queryFn: getAPIUsage,
     refetchInterval: 60000, // Refetch every minute
   });
+
+  // Build list of available providers with their usage data
+  const availableProviders = useMemo<ProviderDisplay[]>(() => {
+    if (!apiUsage?.providers) return [];
+    
+    const providers: ProviderDisplay[] = [];
+    
+    // Add Perplexity
+    if (apiUsage.providers.perplexity) {
+      providers.push({
+        key: "perplexity",
+        name: "Perplexity",
+        usage: {
+          dailyCount: apiUsage.providers.perplexity.dailyCount,
+          dailyLimit: apiUsage.providers.perplexity.dailyLimit,
+          usagePercentage: apiUsage.providers.perplexity.usagePercentage,
+          resetTime: apiUsage.providers.perplexity.resetTime,
+        },
+      });
+    }
+    
+    // Add Gemini
+    if (apiUsage.providers.gemini) {
+      providers.push({
+        key: "gemini",
+        name: "Gemini",
+        usage: {
+          dailyCount: apiUsage.providers.gemini.dailyCount,
+          dailyLimit: apiUsage.providers.gemini.dailyLimit,
+          usagePercentage: apiUsage.providers.gemini.usagePercentage,
+          resetTime: apiUsage.providers.gemini.resetTime,
+        },
+      });
+    }
+    
+    // Add OpenRouter
+    if (apiUsage.providers.openrouter) {
+      providers.push({
+        key: "openrouter",
+        name: "OpenRouter",
+        usage: {
+          dailyCount: apiUsage.providers.openrouter.dailyCount,
+          dailyLimit: apiUsage.providers.openrouter.dailyLimit,
+          usagePercentage: apiUsage.providers.openrouter.usagePercentage,
+          resetTime: apiUsage.providers.openrouter.resetTime,
+        },
+      });
+    }
+    
+    // Add JSearch (uses monthly limits, not daily)
+    if (apiUsage.providers.jsearch) {
+      const jsearch = apiUsage.providers.jsearch as any; // JSearchUsage has different structure
+      providers.push({
+        key: "jsearch",
+        name: "JSearch",
+        usage: {
+          dailyCount: jsearch.monthlyCount || 0, // Use monthly as daily for display
+          dailyLimit: jsearch.monthlyLimit || 200, // Use monthly limit
+          usagePercentage: jsearch.usagePercentage || 0,
+          resetTime: jsearch.resetTime,
+          monthlyCount: jsearch.monthlyCount,
+          monthlyLimit: jsearch.monthlyLimit,
+        },
+      });
+    }
+    
+    // Add n8n (uses monthly limits, not daily)
+    if (apiUsage.providers.n8n) {
+      const n8n = apiUsage.providers.n8n as any; // N8nUsage has different structure
+      providers.push({
+        key: "n8n",
+        name: "n8n",
+        usage: {
+          dailyCount: n8n.monthlyCount || 0, // Use monthly as daily for display
+          dailyLimit: n8n.monthlyLimit || 1000, // Use monthly limit
+          usagePercentage: n8n.usagePercentage || 0,
+          resetTime: n8n.resetTime,
+          monthlyCount: n8n.monthlyCount,
+          monthlyLimit: n8n.monthlyLimit,
+        },
+      });
+    }
+    
+    return providers;
+  }, [apiUsage]);
+
+  // Reset index if it's out of bounds when providers change
+  useEffect(() => {
+    if (availableProviders.length > 0 && currentProviderIndex >= availableProviders.length) {
+      setCurrentProviderIndex(0);
+    }
+  }, [availableProviders.length, currentProviderIndex]);
+
+  // Rotate through providers every 5 seconds (paused when modal is open)
+  useEffect(() => {
+    if (availableProviders.length === 0 || availableProviders.length === 1) return;
+    if (showAPIUsageModal) return; // Pause rotation when modal is open
+    
+    const interval = setInterval(() => {
+      setCurrentProviderIndex((prev) => (prev + 1) % availableProviders.length);
+    }, 5000); // Rotate every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [availableProviders.length, showAPIUsageModal]);
+
+  // Get current provider being displayed
+  const currentProvider = availableProviders.length > 0 
+    ? availableProviders[currentProviderIndex] || availableProviders[0]
+    : null;
 
   const handleLogout = async () => {
     try {
@@ -93,62 +219,103 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       <div className="p-4 border-t border-sidebar-border">
         <div 
-          className="rounded-lg bg-card/50 border border-border p-3 space-y-2 cursor-pointer hover:bg-card/70 transition-colors"
+          className="rounded-lg bg-card/50 border border-border p-3 space-y-2 cursor-pointer hover:bg-card/70 transition-all duration-300"
           onClick={() => setShowAPIUsageModal(true)}
         >
-          <div className="flex justify-between text-xs font-mono text-muted-foreground">
-            <span>API Usage</span>
-            <span>
-              {apiUsage ? `${apiUsage.usagePercentage}%` : "..."}
-            </span>
-          </div>
-          <div className="h-1 w-full bg-muted/50 rounded-full overflow-hidden">
-            {apiUsage ? (() => {
-              // Calculate precise percentage for progress bar (not rounded)
-              // The sidebar shows overall Perplexity usage, but we'll use the precise calculation
-              const precisePercentage = apiUsage.dailyLimit > 0 
-                ? Math.min(100, (apiUsage.dailyCount / apiUsage.dailyLimit) * 100)
-                : 0;
-              
-              // Ensure minimum visibility for small percentages
-              const displayWidth = precisePercentage > 0 && precisePercentage < 1
-                ? Math.max(precisePercentage, 0.5) // At least 0.5% for visibility if usage > 0
-                : Math.max(precisePercentage, 0);
-              
-              return (
-                <div 
-                  className={cn(
-                    "h-full rounded-full transition-all duration-300",
-                    apiUsage.usagePercentage >= 90 
-                      ? "bg-red-500" 
-                      : apiUsage.usagePercentage >= 75
-                      ? "bg-amber-500"
-                      : "bg-primary"
+          {currentProvider ? (
+            <>
+              <div className="flex justify-between items-center text-xs font-mono">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">API Usage</span>
+                  <span className="text-primary font-semibold">{currentProvider.name}</span>
+                  {availableProviders.length > 1 && (
+                    <span className="text-[10px] text-muted-foreground/70">
+                      ({currentProviderIndex + 1}/{availableProviders.length})
+                    </span>
                   )}
-                  style={{ 
-                    width: `${displayWidth}%`,
-                  }}
-                />
-              );
-            })() : (
-              <div className="h-full rounded-full bg-muted" style={{ width: "0%" }} />
-            )}
-          </div>
-          <div className="text-[10px] text-muted-foreground">
-            {apiUsage ? (
-              <>
-                {apiUsage.dailyCount} / {apiUsage.dailyLimit} today
-                {apiUsage.resetTime && (
-                  <> • Resets {formatDistanceToNow(new Date(apiUsage.resetTime), { addSuffix: true })}</>
+                </div>
+                <span className="text-muted-foreground">
+                  {currentProvider.usage.usagePercentage.toFixed(1)}%
+                </span>
+              </div>
+              <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden">
+                {(() => {
+                  const precisePercentage = currentProvider.usage.dailyLimit > 0 
+                    ? Math.min(100, (currentProvider.usage.dailyCount / currentProvider.usage.dailyLimit) * 100)
+                    : 0;
+                  
+                  // Ensure minimum visibility for small percentages
+                  const displayWidth = precisePercentage > 0 && precisePercentage < 1
+                    ? Math.max(precisePercentage, 0.5) // At least 0.5% for visibility if usage > 0
+                    : Math.max(precisePercentage, 0);
+                  
+                  return (
+                    <div 
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500 ease-out",
+                        currentProvider.usage.usagePercentage >= 90 
+                          ? "bg-red-500" 
+                          : currentProvider.usage.usagePercentage >= 75
+                          ? "bg-amber-500"
+                          : "bg-primary"
+                      )}
+                      style={{ 
+                        width: `${displayWidth}%`,
+                      }}
+                    />
+                  );
+                })()}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {currentProvider.key === "jsearch" || currentProvider.key === "n8n" ? (
+                  <>
+                    {currentProvider.usage.monthlyCount || currentProvider.usage.dailyCount} / {currentProvider.usage.monthlyLimit || currentProvider.usage.dailyLimit} this month
+                    {currentProvider.usage.resetTime && (
+                      <> • Resets {formatDistanceToNow(new Date(currentProvider.usage.resetTime), { addSuffix: true })}</>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {currentProvider.usage.dailyCount} / {currentProvider.usage.dailyLimit} today
+                    {currentProvider.usage.resetTime && (
+                      <> • Resets {formatDistanceToNow(new Date(currentProvider.usage.resetTime), { addSuffix: true })}</>
+                    )}
+                  </>
                 )}
-              </>
-            ) : (
-              "Loading..."
-            )}
-          </div>
-          <div className="text-[10px] text-primary/70 mt-1">
-            Click to view breakdown →
-          </div>
+              </div>
+              {availableProviders.length > 1 && (
+                <div className="flex gap-1 justify-center pt-1">
+                  {availableProviders.map((_, index) => (
+                    <div
+                      key={index}
+                      className={cn(
+                        "h-1 w-1 rounded-full transition-all duration-300",
+                        index === currentProviderIndex
+                          ? "bg-primary w-3"
+                          : "bg-muted-foreground/30"
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="text-[10px] text-primary/70 mt-1">
+                Click to view all providers →
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex justify-between text-xs font-mono text-muted-foreground">
+                <span>API Usage</span>
+                <span>...</span>
+              </div>
+              <div className="h-1.5 w-full bg-muted/50 rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-muted" style={{ width: "0%" }} />
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                Loading...
+              </div>
+            </>
+          )}
         </div>
         
         <APIUsageModal

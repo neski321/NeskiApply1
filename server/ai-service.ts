@@ -221,7 +221,7 @@ export async function callAIWithFallback(
     } else if (provider === "openrouter") {
       try {
         const modelSetting = await storage.getSetting("openrouter_model", userId);
-        const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free";
+        const selectedModel = modelSetting?.value || "google/gemini-2.0-flash-exp:free";
         const result = await tryOpenRouter(messages, model, userId);
         if (result) {
           try {
@@ -406,9 +406,44 @@ async function tryPerplexity(
  */
 async function tryOpenRouter(
   messages: AIChatMessage[],
-  model: string = "meta-llama/llama-3.2-3b-instruct:free", // Default to free model
+  model: string = "google/gemini-2.0-flash-exp:free", // Default to free model
   userId: string
 ): Promise<string | null> {
+  // Get user's preferred OpenRouter model or use default (declare outside try for error handling)
+  const modelSetting = await storage.getSetting("openrouter_model", userId);
+  let selectedModel = modelSetting?.value || "google/gemini-2.0-flash-exp:free"; // Default to free model
+  
+  // Validate model - if it's one of the broken Llama models, automatically switch to Gemini
+  const brokenModels = [
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "meta-llama/llama-3.2-1b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.1-70b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen-2-7b-instruct:free",
+  ];
+  
+  if (brokenModels.includes(selectedModel)) {
+    console.warn(`⚠️ Selected model ${selectedModel} is known to be broken. Auto-switching to google/gemini-2.0-flash-exp:free`);
+    selectedModel = "google/gemini-2.0-flash-exp:free";
+    // Update user's setting to the working model
+    try {
+      await storage.setSetting("openrouter_model", selectedModel, userId);
+      console.log(`✅ Auto-updated user's OpenRouter model setting to ${selectedModel}`);
+    } catch (updateError) {
+      console.error("Failed to auto-update user's model setting:", updateError);
+    }
+  }
+  
+  // Get API key outside try block so it's accessible in catch block for fallback
+  const apiKeySetting = await storage.getSetting("openrouter_api_key", userId);
+  const apiKey = apiKeySetting?.value || null;
+  
+  if (!apiKey) {
+    console.log("OpenRouter API key not configured");
+    return null;
+  }
+  
   try {
     // STRICT ENFORCEMENT: Check usage BEFORE making API call
     const { getAPIUsage } = await import("./api-usage");
@@ -428,27 +463,17 @@ async function tryOpenRouter(
     }
     
     console.log(`✅ OpenRouter usage check passed: ${openrouterUsage.dailyCount}/${openrouterUsage.dailyLimit} daily, ${openrouterUsage.minuteCount}/${openrouterUsage.minuteLimit} per minute`);
-    
-    const apiKeySetting = await storage.getSetting("openrouter_api_key", userId);
-    
-    if (!apiKeySetting || !apiKeySetting.value) {
-      console.log("OpenRouter API key not configured");
-      return null;
-    }
-
-    // Get user's preferred OpenRouter model or use default
-    const modelSetting = await storage.getSetting("openrouter_model", userId);
-    const selectedModel = modelSetting?.value || "meta-llama/llama-3.2-3b-instruct:free"; // Default to free model
 
     const openrouter = new OpenAI({
       baseURL: "https://openrouter.ai/api/v1",
-      apiKey: apiKeySetting.value,
+      apiKey: apiKey,
       defaultHeaders: {
-        "HTTP-Referer": "https://neskiapply.com", // Replace with your actual domain
+        "HTTP-Referer": "https://neskiapply.com",
         "X-Title": "NeskiApply",
       },
     });
 
+    console.log(`📡 Attempting OpenRouter API call with model: ${selectedModel}`);
     const completion = await openrouter.chat.completions.create({
       model: selectedModel,
       messages: messages.map(msg => ({
@@ -467,18 +492,24 @@ async function tryOpenRouter(
   } catch (error: any) {
     // Check if it's an authorization error (401)
     const errorMessage = error?.message || String(error);
+    const errorStatus = error?.status || error?.response?.status;
     const isUnauthorized = errorMessage.includes("unauthorized") || 
                           errorMessage.includes("not authorized") ||
                           errorMessage.includes("401") ||
-                          error?.status === 401 ||
-                          error?.response?.status === 401;
+                          errorStatus === 401;
+    
+    // Check if it's a 404 (model not found)
+    const isNotFound = errorMessage.includes("404") || 
+                      errorMessage.includes("No endpoints found") ||
+                      errorMessage.includes("not found") ||
+                      errorStatus === 404;
     
     // Check if it's a rate limit or credit issue
     const isRateLimit = errorMessage.includes("rate limit") || 
                        errorMessage.includes("quota") || 
                        errorMessage.includes("credit") ||
                        errorMessage.includes("429") ||
-                       error?.status === 429;
+                       errorStatus === 429;
     
     if (isUnauthorized) {
       console.error("OpenRouter API authorization error (401): Invalid or expired API key");
@@ -495,6 +526,65 @@ async function tryOpenRouter(
       }
       // Throw a specific error so it can be caught and handled appropriately
       throw new Error("OpenRouter API key is invalid or unauthorized. Please check your API key in Settings.");
+    } else if (isNotFound) {
+      // Model not found - try fallback to a known working model
+      console.error(`OpenRouter API error: 404 No endpoints found for ${selectedModel}.`);
+      console.error(`Attempting fallback to google/gemini-2.0-flash-exp:free...`);
+      
+      // Log to activity log
+      try {
+        const { activityLogger } = await import("./logger");
+        await activityLogger.error(
+          `OpenRouter model not found: ${selectedModel}. Attempting fallback to Gemini.`,
+          { provider: "openrouter", error: "404_model_not_found", model: selectedModel, userId },
+          userId
+        );
+      } catch (logError) {
+        console.error("Failed to log OpenRouter 404 error:", logError);
+      }
+      
+      // Try fallback to a known working model (Gemini 2.0 Flash)
+      if (selectedModel !== "google/gemini-2.0-flash-exp:free") {
+        try {
+          const fallbackModel = "google/gemini-2.0-flash-exp:free";
+          console.log(`Trying fallback model: ${fallbackModel}`);
+          
+          const openrouter = new OpenAI({
+            baseURL: "https://openrouter.ai/api/v1",
+            apiKey: apiKey,
+            defaultHeaders: {
+              "HTTP-Referer": "https://neskiapply.com",
+              "X-Title": "NeskiApply",
+            },
+          });
+
+          const completion = await openrouter.chat.completions.create({
+            model: fallbackModel,
+            messages: messages.map(msg => ({
+              role: msg.role,
+              content: msg.content,
+            })),
+          });
+
+          const content = completion.choices?.[0]?.message?.content;
+          if (content) {
+            console.log(`✅ Fallback model ${fallbackModel} succeeded`);
+            // Update user's setting to the working model
+            try {
+              await storage.setSetting("openrouter_model", fallbackModel, userId);
+              console.log(`Updated user's OpenRouter model setting to ${fallbackModel}`);
+            } catch (updateError) {
+              console.error("Failed to update user's model setting:", updateError);
+            }
+            return content;
+          }
+        } catch (fallbackError) {
+          console.error(`Fallback model also failed:`, fallbackError);
+        }
+      }
+      
+      // If fallback also failed, return null to allow provider fallback
+      return null;
     } else if (isRateLimit) {
       console.log("OpenRouter rate limit/quota exceeded");
     } else {
