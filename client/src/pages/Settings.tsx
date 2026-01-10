@@ -61,7 +61,7 @@ export default function Settings() {
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
     openrouterApiKey: "",
-    openrouterModel: "meta-llama/llama-3.2-3b-instruct:free",
+    openrouterModel: "google/gemini-2.0-flash-exp:free",
     resumeOptimizationProvider: "perplexity",
     jsearchApiKey: "",
     jsearchRapidApiHost: "",
@@ -172,7 +172,7 @@ export default function Settings() {
         geminiApiKey: settingsMap.gemini_api_key || "",
         geminiModel: settingsMap.gemini_model || "gemini-2.5-flash",
         openrouterApiKey: settingsMap.openrouter_api_key || "",
-        openrouterModel: settingsMap.openrouter_model || "meta-llama/llama-3.2-3b-instruct:free",
+        openrouterModel: settingsMap.openrouter_model || "google/gemini-2.0-flash-exp:free",
         resumeOptimizationProvider: settingsMap.resume_optimization_provider || "gemini",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
         jsearchRapidApiHost: settingsMap.jsearch_rapidapi_host || "",
@@ -989,11 +989,11 @@ export default function Settings() {
                       onChange={(e) => setFormData({ ...formData, openrouterModel: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B - Fastest</option>
-                      <option value="meta-llama/llama-3.2-1b-instruct:free">Llama 3.2 1B - Ultra Fast</option>
-                      <option value="google/gemma-2-9b-it:free">Gemma 2 9B - Balanced</option>
-                      <option value="mistralai/mistral-7b-instruct:free">Mistral 7B - High Quality</option>
-                      <option value="qwen/qwen-2-7b-instruct:free">Qwen 2 7B - Experimental</option>
+                      <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash - General Purpose (1M context) (Recommended)</option>
+                      <option value="google/gemini-2.5-flash-preview:free">Gemini 2.5 Flash - Latest (1M context)</option>
+                      <option value="deepseek/deepseek-r1:free">DeepSeek R1 - Reasoning & Analysis (64K context)</option>
+                      <option value="mistralai/mistral-nemo:free">Mistral Nemo - Efficient Performance (128K context)</option>
+                      <option value="xiaomi/mimo-v2-flash:free">Xiaomi MiMo V2 Flash - Reasoning & Coding (256K context)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
