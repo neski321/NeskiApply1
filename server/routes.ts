@@ -1390,6 +1390,32 @@ export async function registerRoutes(
   });
 
   // Set a setting
+  // Batch save settings (accepts multiple key-value pairs in one request)
+  app.post("/api/settings/batch", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const { settings: settingsMap } = req.body;
+      
+      if (!settingsMap || typeof settingsMap !== "object") {
+        return res.status(400).json({ error: "Settings object is required" });
+      }
+      
+      // Validate that all values are not null/undefined
+      for (const [key, value] of Object.entries(settingsMap)) {
+        if (value === null || value === undefined) {
+          return res.status(400).json({ error: `Value for key "${key}" cannot be null or undefined` });
+        }
+      }
+      
+      // Save all settings in batch
+      const savedSettings = await storage.setSettingsBatch(settingsMap, userId);
+      res.json(savedSettings);
+    } catch (error) {
+      console.error("Error saving settings batch:", error);
+      res.status(500).json({ error: "Failed to save settings" });
+    }
+  });
+
   app.post("/api/settings", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);

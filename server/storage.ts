@@ -63,6 +63,7 @@ export interface IStorage {
   getSetting(key: string, userId: string): Promise<Setting | undefined>;
   setSetting(key: string, value: string, userId: string): Promise<Setting>;
   getAllSettings(userId: string): Promise<Setting[]>;
+  setSettingsBatch(settingsMap: Record<string, string>, userId: string): Promise<Setting[]>;
 
   // Activity Logs
   createActivityLog(log: InsertActivityLog, userId: string): Promise<ActivityLog>;
@@ -405,6 +406,49 @@ export class DatabaseStorage implements IStorage {
 
   async getAllSettings(userId: string): Promise<Setting[]> {
     return await db.select().from(settings).where(eq(settings.userId, userId));
+  }
+
+  async setSettingsBatch(settingsMap: Record<string, string>, userId: string): Promise<Setting[]> {
+    // Get all existing settings for this user to determine which need to be updated vs inserted
+    const existingSettings = await db.select().from(settings).where(eq(settings.userId, userId));
+    const existingKeys = new Set(existingSettings.map(s => s.key));
+    
+    const now = new Date();
+    const updates: Promise<Setting>[] = [];
+    const inserts: { key: string; value: string; userId: string }[] = [];
+    
+    // Separate settings into updates and inserts
+    for (const [key, value] of Object.entries(settingsMap)) {
+      if (existingKeys.has(key)) {
+        // Update existing setting
+        updates.push(
+          db
+            .update(settings)
+            .set({ value: String(value), updatedAt: now })
+            .where(and(eq(settings.key, key), eq(settings.userId, userId)))
+            .returning()
+            .then(([updated]) => updated!)
+        );
+      } else {
+        // Insert new setting (updatedAt will be set automatically by defaultNow())
+        inserts.push({
+          key,
+          value: String(value),
+          userId,
+        });
+      }
+    }
+    
+    // Execute updates and inserts
+    const updatedSettings = await Promise.all(updates);
+    
+    let insertedSettings: Setting[] = [];
+    if (inserts.length > 0) {
+      insertedSettings = await db.insert(settings).values(inserts).returning();
+    }
+    
+    // Return all settings (both updated and newly inserted)
+    return [...updatedSettings, ...insertedSettings];
   }
 
   // Activity Logs

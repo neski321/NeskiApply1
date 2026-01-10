@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, setSetting, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
+import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -258,10 +258,10 @@ export default function Settings() {
 
   const saveMutation = useMutation({
     mutationFn: async (data: { settings: Record<string, string>; savedFormData: typeof formData }) => {
-      const promises = Object.entries(data.settings).map(([key, value]) => 
-        setSetting(key, value)
-      );
-      await Promise.all(promises);
+      // Use batch endpoint to save all settings in a single API call
+      // This prevents hitting rate limits (100 requests per 15 minutes)
+      // Instead of ~34 API calls per save, we now make just 1 API call
+      await setSettingsBatch(data.settings);
       return data.savedFormData; // Return the form data that was saved
     },
     onSuccess: (savedFormData) => {

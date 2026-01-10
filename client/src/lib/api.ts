@@ -302,6 +302,20 @@ export async function setSetting(key: string, value: string): Promise<Setting> {
   return response.json();
 }
 
+export async function setSettingsBatch(settingsMap: Record<string, string>): Promise<Setting[]> {
+  const response = await fetch("/api/settings/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ settings: settingsMap }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to save settings" }));
+    throw new Error(error.error || "Failed to save settings");
+  }
+  return response.json();
+}
+
 // ============ STATS API ============
 
 export interface DashboardStats {
