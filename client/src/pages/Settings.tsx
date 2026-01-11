@@ -990,10 +990,17 @@ export default function Settings() {
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash - General Purpose (1M context) (Recommended)</option>
-                      <option value="google/gemini-2.5-flash-preview:free">Gemini 2.5 Flash - Latest (1M context)</option>
-                      <option value="deepseek/deepseek-r1:free">DeepSeek R1 - Reasoning & Analysis (64K context)</option>
-                      <option value="mistralai/mistral-nemo:free">Mistral Nemo - Efficient Performance (128K context)</option>
+                      <option value="google/gemma-3-4b-it:free">Gemma 3 4B - Multimodal (128K context)</option>
+                      <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B - Efficient (32K context)</option>
+                      <option value="mistralai/mistral-7b-instruct:free">Mistral 7B Instruct - Fast & Efficient (32K context)</option>
+                      <option value="mistralai/devstral-2512:free">Mistral Devstral 2 - Agentic Coding (256K context)</option>
+                      <option value="mistralai/mistral-small-3.1-24b-instruct:free">Mistral Small 3.1 24B - Multimodal (128K context)</option>
                       <option value="xiaomi/mimo-v2-flash:free">Xiaomi MiMo V2 Flash - Reasoning & Coding (256K context)</option>
+                      <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct - Multilingual (128K context)</option>
+                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct - Lightweight (128K context)</option>
+                      <option value="tngtech/deepseek-r1t-chimera:free">TNG DeepSeek R1T Chimera - Reasoning (164K context)</option>
+                      <option value="qwen/qwen3-coder:free">Qwen3 Coder 480B - Code Generation (262K context)</option>
+                      <option value="qwen/qwen-2.5-vl-7b-instruct:free">Qwen 2.5 VL 7B - Multimodal (128K context)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
