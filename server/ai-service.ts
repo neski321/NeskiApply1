@@ -421,6 +421,7 @@ async function tryOpenRouter(
     "meta-llama/llama-3.1-70b-instruct:free",
     "meta-llama/llama-3.1-8b-instruct:free",
     "qwen/qwen-2-7b-instruct:free",
+    "deepseek/deepseek-r1:free", // Returns 404
   ];
   
   if (brokenModels.includes(selectedModel)) {
@@ -578,8 +579,30 @@ async function tryOpenRouter(
             }
             return content;
           }
-        } catch (fallbackError) {
-          console.error(`Fallback model also failed:`, fallbackError);
+        } catch (fallbackError: any) {
+          const fallbackErrorMessage = fallbackError?.message || String(fallbackError);
+          const fallbackErrorStatus = fallbackError?.status || fallbackError?.response?.status;
+          const isFallbackRateLimit = fallbackErrorMessage.includes("rate limit") || 
+                                     fallbackErrorMessage.includes("rate-limited") ||
+                                     fallbackErrorMessage.includes("429") ||
+                                     fallbackErrorStatus === 429;
+          
+          if (isFallbackRateLimit) {
+            console.error(`Fallback model ${fallbackModel} is rate-limited (429). Will try next provider in chain.`);
+            // Log to activity log
+            try {
+              const { activityLogger } = await import("./logger");
+              await activityLogger.error(
+                `OpenRouter fallback model ${fallbackModel} is rate-limited. Trying next provider.`,
+                { provider: "openrouter", error: "429_rate_limit", model: fallbackModel, userId },
+                userId
+              );
+            } catch (logError) {
+              console.error("Failed to log fallback rate limit error:", logError);
+            }
+          } else {
+            console.error(`Fallback model also failed:`, fallbackError);
+          }
         }
       }
       
