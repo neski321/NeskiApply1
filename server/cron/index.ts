@@ -339,13 +339,14 @@ export async function executeJobCleanup(userId: string): Promise<{
     // Delete jobs that are 30+ days old and haven't been applied to
     const deletedCount = await storage.deleteOldUnappliedJobs(userId, 30);
     
-    if (deletedCount > 0) {
-      await activityLogger.info(
-        `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (30+ days old)`,
-        { deletedCount },
-        userId
-      );
-    }
+    // Always log cleanup activity, even if nothing was deleted
+    await activityLogger.info(
+      deletedCount > 0
+        ? `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (30+ days old)`
+        : `Job cleanup completed: No old unapplied jobs found (30+ days old)`,
+      { deletedCount, cleanupType: "old_unapplied_jobs" },
+      userId
+    );
 
     return {
       success: true,
@@ -435,13 +436,14 @@ export async function executeOptimizedResumeCleanup(userId: string): Promise<{
       }
     }
     
-    if (deletedCount > 0) {
-      await activityLogger.info(
-        `Cleaned up ${deletedCount} optimized resume${deletedCount === 1 ? '' : 's'} for jobs applied 3+ days ago`,
-        { deletedCount, jobsProcessed: jobsToCleanup.length },
-        userId
-      );
-    }
+    // Always log cleanup activity, even if nothing was deleted
+    await activityLogger.info(
+      deletedCount > 0
+        ? `Cleaned up ${deletedCount} optimized resume${deletedCount === 1 ? '' : 's'} for ${jobsToCleanup.length} job${jobsToCleanup.length === 1 ? '' : 's'} applied 3+ days ago`
+        : `Optimized resume cleanup completed: No optimized resumes found for jobs applied 3+ days ago (checked ${jobsToCleanup.length} job${jobsToCleanup.length === 1 ? '' : 's'})`,
+      { deletedCount, jobsProcessed: jobsToCleanup.length, cleanupType: "optimized_resumes" },
+      userId
+    );
 
     return {
       success: true,

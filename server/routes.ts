@@ -829,11 +829,20 @@ export async function registerRoutes(
       const partialSchema = insertJobSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
+      // Get existing job to preserve appliedAt if already set
+      const existingJob = await storage.getJob(id, userId);
+      
       // Set appliedAt timestamp when marking as applied
       if (validatedData.isApplied === true) {
+        // Mark as applied - set appliedAt to current date
         validatedData.appliedAt = new Date();
       } else if (validatedData.isApplied === false) {
+        // Unmark as applied - clear appliedAt
         validatedData.appliedAt = null;
+      } else if (existingJob?.isApplied && existingJob?.appliedAt) {
+        // If isApplied is not being changed but job was already applied, preserve appliedAt
+        // This ensures appliedAt is not lost when updating other fields
+        validatedData.appliedAt = existingJob.appliedAt;
       }
       
       const job = await storage.updateJob(id, validatedData, userId);
