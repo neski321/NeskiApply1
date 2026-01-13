@@ -21,6 +21,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateJob, deleteJob } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { ToastAction } from "@/components/ui/toast";
 
 export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job) => void }) {
   const { toast } = useToast();
@@ -77,11 +78,25 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
   const updateJobMutation = useMutation({
     mutationFn: (data: Partial<Job>) => updateJob(job.id, data),
     onSuccess: (response: any) => {
-      queryClient.invalidateQueries({ queryKey: ["jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-      
       // Check if there are optimized resumes when marking as applied
       if (response.hasOptimizedResumes && response.optimizedResumesCount) {
+        // Show toast notification that persists even after job disappears
+        toast({
+          title: "Optimized Resume Available",
+          description: `This job has ${response.optimizedResumesCount} optimized resume${response.optimizedResumesCount > 1 ? "s" : ""}. Download them from the Resumes page before they're automatically deleted in 3 days.`,
+          duration: 10000, // Show for 10 seconds
+          action: (
+            <ToastAction
+              altText="Go to optimized resumes"
+              onClick={() => {
+                window.location.href = "/resumes?tab=optimized";
+              }}
+            >
+              View Resumes
+            </ToastAction>
+          ),
+        });
+        // Also show the alert dialog if the job is still visible
         setOptimizedResumesCount(response.optimizedResumesCount);
         setShowOptimizedResumeAlert(true);
       } else {
@@ -90,6 +105,12 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
           description: `"${job.title}" has been marked as applied`,
         });
       }
+      
+      // Delay query invalidation slightly to allow notification to be seen
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        queryClient.invalidateQueries({ queryKey: ["stats"] });
+      }, 100);
     },
     onError: (error: Error) => {
       toast({

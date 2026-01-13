@@ -233,10 +233,17 @@ export class DatabaseStorage implements IStorage {
       const [existing] = await db.select().from(jobs).where(and(eq(jobs.externalId, job.externalId), eq(jobs.userId, userId)));
       
       if (existing) {
-        // Preserve original postedDate and createdAt when updating
+        // Preserve original postedDate, createdAt, isApplied, and appliedAt when updating
         const updateData = { ...job };
         if (existing.postedDate) {
           updateData.postedDate = existing.postedDate; // Keep original date
+        }
+        // Preserve applied status and date if job was already applied
+        if (existing.isApplied) {
+          updateData.isApplied = existing.isApplied;
+          if (existing.appliedAt) {
+            updateData.appliedAt = existing.appliedAt;
+          }
         }
         const [updated] = await db
           .update(jobs)
@@ -259,10 +266,17 @@ export class DatabaseStorage implements IStorage {
       );
       
       if (existingByUrl) {
-        // Preserve original postedDate and createdAt when updating
+        // Preserve original postedDate, createdAt, isApplied, and appliedAt when updating
         const updateData = { ...job };
         if (existingByUrl.postedDate) {
           updateData.postedDate = existingByUrl.postedDate; // Keep original date
+        }
+        // Preserve applied status and date if job was already applied
+        if (existingByUrl.isApplied) {
+          updateData.isApplied = existingByUrl.isApplied;
+          if (existingByUrl.appliedAt) {
+            updateData.appliedAt = existingByUrl.appliedAt;
+          }
         }
         const [updated] = await db
           .update(jobs)
@@ -291,10 +305,17 @@ export class DatabaseStorage implements IStorage {
 
     if (duplicate) {
       console.log(`[Duplicate Detection] Found duplicate job: "${job.title}" at "${job.company}" (existing ID: ${duplicate.id})`);
-      // Preserve original postedDate, createdAt, and other original data when updating
+      // Preserve original postedDate, createdAt, isApplied, appliedAt, and other original data when updating
       const updateData = { ...job };
       if (duplicate.postedDate) {
         updateData.postedDate = duplicate.postedDate; // Keep original date
+      }
+      // Preserve applied status and date if job was already applied
+      if (duplicate.isApplied) {
+        updateData.isApplied = duplicate.isApplied;
+        if (duplicate.appliedAt) {
+          updateData.appliedAt = duplicate.appliedAt;
+        }
       }
       // Don't update createdAt - keep the original creation time
       const [updated] = await db
