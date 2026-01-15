@@ -11,6 +11,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { APIUsageModal } from "@/components/APIUsageModal";
+import { GlobalErrorHandler } from "@/components/GlobalErrorHandler";
 
 type ProviderKey = "perplexity" | "gemini" | "openrouter" | "jsearch" | "n8n";
 
@@ -351,6 +352,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground font-sans overflow-hidden selection:bg-primary/20 selection:text-primary">
+      <GlobalErrorHandler />
       {/* Sidebar Desktop */}
       <aside className="w-64 hidden md:flex flex-col border-r border-sidebar-border bg-sidebar/50 backdrop-blur-xl">
         <NavContent />

@@ -63,13 +63,26 @@ app.use(
 // Security: Rate limiting for API endpoints
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: "Too many requests from this IP, please try again later.",
+  max: 200, // Limit each IP to 200 requests per windowMs
+  message: JSON.stringify({
+    error: "rate_limit_exceeded",
+    message: "You've made too many requests. Please wait a few minutes before trying again.",
+    limit: 200,
+    window: "15 minutes",
+    retryAfter: Math.ceil(15 * 60), // seconds
+  }),
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skip: (req) => {
     // Skip rate limiting for n8n ingestion endpoint (has its own authentication)
-    return req.path === "/api/jobs/ingest";
+    if (req.path === "/api/jobs/ingest") {
+      return true;
+    }
+    // Skip rate limiting for all settings endpoints (user needs to save settings freely)
+    if (req.path.startsWith("/api/settings")) {
+      return true;
+    }
+    return false;
   },
 });
 
