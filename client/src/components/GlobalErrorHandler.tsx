@@ -11,7 +11,7 @@ export function GlobalErrorHandler() {
   useEffect(() => {
     // Listen for mutations that fail with rate limit errors
     const unsubscribe = queryClient.getMutationCache().subscribe((mutation) => {
-      if (mutation.state.status === "error") {
+      if (mutation.state && mutation.state.status === "error") {
         const error = mutation.state.error as Error & { isRateLimit?: boolean };
         if (error?.isRateLimit) {
           setRateLimitError(error);
