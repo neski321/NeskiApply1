@@ -339,14 +339,26 @@ export async function executeJobCleanup(userId: string): Promise<{
     // Delete jobs that are 30+ days old and haven't been applied to
     const deletedCount = await storage.deleteOldUnappliedJobs(userId, 30);
     
+    // Clean up old deleted_jobs records (older than 14 days)
+    const deletedJobsCleanupCount = await storage.deleteOldDeletedJobs(userId, 14);
+    
     // Always log cleanup activity, even if nothing was deleted
     await activityLogger.info(
       deletedCount > 0
         ? `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (30+ days old)`
         : `Job cleanup completed: No old unapplied jobs found (30+ days old)`,
-      { deletedCount, cleanupType: "old_unapplied_jobs" },
+      { deletedCount, deletedJobsCleanupCount, cleanupType: "old_unapplied_jobs" },
       userId
     );
+    
+    // Log deleted jobs cleanup separately if any were cleaned up
+    if (deletedJobsCleanupCount > 0) {
+      await activityLogger.info(
+        `Cleaned up ${deletedJobsCleanupCount} old deleted job record${deletedJobsCleanupCount === 1 ? '' : 's'} (14+ days old)`,
+        { deletedJobsCleanupCount, cleanupType: "old_deleted_jobs" },
+        userId
+      );
+    }
 
     return {
       success: true,

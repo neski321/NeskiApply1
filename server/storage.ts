@@ -15,6 +15,8 @@ import {
   type InsertOptimizedResume,
   type PasswordResetToken,
   type InsertPasswordResetToken,
+  type DeletedJob,
+  type InsertDeletedJob,
   users,
   resumes,
   jobs,
@@ -23,6 +25,7 @@ import {
   activityLogs,
   optimizedResumes,
   passwordResetTokens,
+  deletedJobs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, or, isNull, asc, lt, gt } from "drizzle-orm";
@@ -49,6 +52,7 @@ export interface IStorage {
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
+  deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
 
   // ATS Analyses
@@ -184,6 +188,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteJob(id: number, userId: string): Promise<boolean> {
+    // Get job details before deleting to log in deleted_jobs
+    const [job] = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
+    
+    if (!job) {
+      return false;
+    }
+    
+    // Log deleted job to prevent re-adding during scans/ingestion
+    const normalizedTitle = this.normalizeText(job.title);
+    const normalizedCompany = this.normalizeText(job.company);
+    
+    await db.insert(deletedJobs).values({
+      userId,
+      externalId: job.externalId || null,
+      url: job.url || null,
+      title: normalizedTitle,
+      company: normalizedCompany,
+      reason: "manual",
+    }).catch((error) => {
+      // Log error but don't fail deletion if logging fails
+      console.error("Failed to log deleted job:", error);
+    });
+    
     // Delete the job - this will cascade delete ATS analyses via foreign key constraint
     // Note: We keep activity logs that reference this job for historical purposes
     const result = await db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
@@ -195,6 +222,41 @@ export class DatabaseStorage implements IStorage {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
     cutoffDate.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
+    
+    // Get jobs that will be deleted to log them first
+    const jobsToDelete = await db
+      .select()
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.userId, userId),
+          lt(jobs.createdAt, cutoffDate),
+          or(
+            eq(jobs.isApplied, false),
+            isNull(jobs.isApplied)
+          )
+        )
+      );
+    
+    // Log deleted jobs to prevent re-adding during scans/ingestion
+    if (jobsToDelete.length > 0) {
+      const deletedJobEntries: InsertDeletedJob[] = jobsToDelete.map(job => ({
+        userId,
+        externalId: job.externalId || null,
+        url: job.url || null,
+        title: this.normalizeText(job.title),
+        company: this.normalizeText(job.company),
+        reason: "old_unapplied",
+      }));
+      
+      // Insert in batches to avoid issues with large arrays
+      for (const deletedJob of deletedJobEntries) {
+        await db.insert(deletedJobs).values(deletedJob).catch((error) => {
+          // Log error but don't fail deletion if logging fails
+          console.error("Failed to log deleted job:", error);
+        });
+      }
+    }
     
     // Delete jobs that:
     // 1. Belong to this user
@@ -216,6 +278,25 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount || 0;
   }
 
+  async deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number> {
+    // Calculate the cutoff date (14 days ago)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    cutoffDate.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
+    
+    // Delete deleted_jobs records that are older than the cutoff date
+    const result = await db
+      .delete(deletedJobs)
+      .where(
+        and(
+          eq(deletedJobs.userId, userId),
+          lt(deletedJobs.deletedAt, cutoffDate)
+        )
+      );
+    
+    return result.rowCount || 0;
+  }
+
   /**
    * Normalize text for comparison (lowercase, trim, remove extra spaces)
    */
@@ -223,10 +304,86 @@ export class DatabaseStorage implements IStorage {
     return text.toLowerCase().trim().replace(/\s+/g, " ");
   }
 
+  /**
+   * Check if a job was previously deleted (to prevent re-adding)
+   */
+  private async wasJobDeleted(job: InsertJob, userId: string): Promise<boolean> {
+    const normalizedTitle = this.normalizeText(job.title);
+    const normalizedCompany = this.normalizeText(job.company);
+    
+    // Check by externalId if available
+    if (job.externalId) {
+      const [deleted] = await db.select().from(deletedJobs).where(
+        and(
+          eq(deletedJobs.userId, userId),
+          eq(deletedJobs.externalId, job.externalId)
+        )
+      );
+      if (deleted) {
+        return true;
+      }
+    }
+    
+    // Check by URL if available
+    if (job.url) {
+      const [deleted] = await db.select().from(deletedJobs).where(
+        and(
+          eq(deletedJobs.userId, userId),
+          eq(deletedJobs.url, job.url)
+        )
+      );
+      if (deleted) {
+        return true;
+      }
+    }
+    
+    // Check by normalized title + company
+    const [deleted] = await db.select().from(deletedJobs).where(
+      and(
+        eq(deletedJobs.userId, userId),
+        eq(deletedJobs.title, normalizedTitle),
+        eq(deletedJobs.company, normalizedCompany)
+      )
+    );
+    
+    return !!deleted;
+  }
+
   async upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }> {
     // Helper to normalize title and company for comparison
     const normalizedTitle = this.normalizeText(job.title);
     const normalizedCompany = this.normalizeText(job.company);
+
+    // Check if this job was previously deleted - if so, don't re-add it
+    const wasDeleted = await this.wasJobDeleted(job, userId);
+    if (wasDeleted) {
+      console.log(`[Deleted Job Check] Skipping previously deleted job: "${job.title}" at "${job.company}"`);
+      
+      // Log to activity log that this job was skipped
+      try {
+        const { activityLogger } = await import("./logger");
+        await activityLogger.info(
+          `Skipped job "${job.title}" at ${job.company} - previously deleted`,
+          { 
+            title: job.title, 
+            company: job.company, 
+            externalId: job.externalId || null,
+            url: job.url || null,
+            reason: "previously_deleted"
+          },
+          userId
+        );
+      } catch (logError) {
+        // Log error but don't fail the skip operation if logging fails
+        console.error("Failed to log skipped job to activity log:", logError);
+      }
+      
+      // Throw a special error that callers can catch and ignore (treat as skip)
+      // This prevents re-adding deleted jobs during scans/ingestion
+      const skipError = new Error("Job was previously deleted");
+      (skipError as any).skip = true;
+      throw skipError;
+    }
 
     // Priority 1: If externalId is provided, use it for duplicate detection
     if (job.externalId) {

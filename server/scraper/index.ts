@@ -180,7 +180,12 @@ export async function scrapeJobs(options: ScrapeOptions): Promise<ScrapeResult[]
             });
           }
           // If wasInserted is false, it means it was a duplicate/update, so we skip it
-        } catch (error) {
+        } catch (error: any) {
+          // Skip errors for previously deleted jobs (they should not be re-added)
+          if (error?.skip && error?.message?.includes("previously deleted")) {
+            // Silently skip - this job was deleted by the user and should not be re-added
+            continue;
+          }
           console.error("Error saving JSearch job:", error);
         }
       }

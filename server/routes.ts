@@ -1640,7 +1640,12 @@ export async function registerRoutes(
           }
           
           processed++;
-        } catch (error) {
+        } catch (error: any) {
+          // Skip errors for previously deleted jobs (they should not be re-added)
+          if (error?.skip && error?.message?.includes("previously deleted")) {
+            // Silently skip - this job was deleted by the user and should not be re-added
+            continue;
+          }
           console.error(`[Ingest] Error processing job:`, error);
           skipped++;
         }

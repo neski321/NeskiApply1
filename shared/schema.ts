@@ -186,6 +186,26 @@ export const insertOptimizedResumeSchema = createInsertSchema(optimizedResumes).
 export type InsertOptimizedResume = z.infer<typeof insertOptimizedResumeSchema>;
 export type OptimizedResume = typeof optimizedResumes.$inferSelect;
 
+// Deleted Jobs table - tracks deleted jobs to prevent re-adding during scans/ingestion
+export const deletedJobs = pgTable("deleted_jobs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  externalId: text("external_id"), // Original external ID if available
+  url: text("url"), // Job URL if available
+  title: text("title").notNull(), // Normalized title for matching
+  company: text("company").notNull(), // Normalized company for matching
+  reason: text("reason"), // "manual" or "auto_cleanup" or "old_unapplied"
+  deletedAt: timestamp("deleted_at").defaultNow().notNull(),
+});
+
+export const insertDeletedJobSchema = createInsertSchema(deletedJobs).omit({
+  id: true,
+  deletedAt: true,
+});
+
+export type InsertDeletedJob = z.infer<typeof insertDeletedJobSchema>;
+export type DeletedJob = typeof deletedJobs.$inferSelect;
+
 // Session table (for express-session with connect-pg-simple)
 // This table stores user sessions for authentication
 // Table name must be "session" (singular) to match connect-pg-simple expectations
