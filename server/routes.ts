@@ -923,6 +923,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid job ID" });
       }
       
+      // Get expired parameter from query string or request body
+      const expired = req.query.expired === "true" || (req.body && req.body.expired === true);
+      
       // Get job details before deleting for activity log
       const job = await storage.getJob(id, userId);
       
@@ -930,7 +933,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Job not found" });
       }
       
-      const deleted = await storage.deleteJob(id, userId);
+      const deleted = await storage.deleteJob(id, userId, expired);
       
       if (!deleted) {
         return res.status(404).json({ error: "Job not found" });
@@ -938,7 +941,10 @@ export async function registerRoutes(
       
       // Log the deletion
       const { activityLogger } = await import("./logger");
-      await activityLogger.info(`Job deleted: "${job.title}" at ${job.company}`, { jobId: id }, userId);
+      const logMessage = expired 
+        ? `Job deleted (expired): "${job.title}" at ${job.company} - can be re-added during scans`
+        : `Job deleted: "${job.title}" at ${job.company}`;
+      await activityLogger.info(logMessage, { jobId: id, expired }, userId);
       
       res.status(204).send();
     } catch (error) {

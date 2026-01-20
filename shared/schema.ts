@@ -195,6 +195,7 @@ export const deletedJobs = pgTable("deleted_jobs", {
   title: text("title").notNull(), // Normalized title for matching
   company: text("company").notNull(), // Normalized company for matching
   reason: text("reason"), // "manual" or "auto_cleanup" or "old_unapplied"
+  isExpired: boolean("is_expired").default(false), // If true, job can be re-added during scans
   deletedAt: timestamp("deleted_at").defaultNow().notNull(),
 });
 
