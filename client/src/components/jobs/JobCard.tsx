@@ -190,6 +190,12 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
                     <span>Scanned {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true })}</span>
                   </div>
                 )}
+                {job.isApplied && job.appliedAt && (
+                  <div className="flex items-center gap-1" title={new Date(job.appliedAt).toLocaleString()}>
+                    <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+                    <span>Applied {formatDistanceToNow(new Date(job.appliedAt), { addSuffix: true })}</span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 self-start sm:self-auto">
