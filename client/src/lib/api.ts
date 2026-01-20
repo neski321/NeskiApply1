@@ -188,8 +188,9 @@ export async function updateJob(id: number, job: Partial<InsertJob>): Promise<Jo
   return response.json();
 }
 
-export async function deleteJob(id: number): Promise<void> {
-  const response = await fetch(`/api/jobs/${id}`, {
+export async function deleteJob(id: number, expired: boolean = false): Promise<void> {
+  const url = `/api/jobs/${id}${expired ? "?expired=true" : ""}`;
+  const response = await fetch(url, {
     method: "DELETE",
     credentials: "include",
   });

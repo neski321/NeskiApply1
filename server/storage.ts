@@ -50,7 +50,7 @@ export interface IStorage {
   getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]>;
   getJob(id: number, userId: string): Promise<Job | undefined>;
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
-  deleteJob(id: number, userId: string): Promise<boolean>;
+  deleteJob(id: number, userId: string, expired?: boolean): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
   deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
@@ -187,7 +187,7 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  async deleteJob(id: number, userId: string): Promise<boolean> {
+  async deleteJob(id: number, userId: string, expired: boolean = false): Promise<boolean> {
     // Get job details before deleting to log in deleted_jobs
     const [job] = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     
@@ -195,21 +195,25 @@ export class DatabaseStorage implements IStorage {
       return false;
     }
     
-    // Log deleted job to prevent re-adding during scans/ingestion
-    const normalizedTitle = this.normalizeText(job.title);
-    const normalizedCompany = this.normalizeText(job.company);
-    
-    await db.insert(deletedJobs).values({
-      userId,
-      externalId: job.externalId || null,
-      url: job.url || null,
-      title: normalizedTitle,
-      company: normalizedCompany,
-      reason: "manual",
-    }).catch((error) => {
-      // Log error but don't fail deletion if logging fails
-      console.error("Failed to log deleted job:", error);
-    });
+    // Only log to deleted_jobs if NOT expired (expired jobs can be re-added)
+    if (!expired) {
+      // Log deleted job to prevent re-adding during scans/ingestion
+      const normalizedTitle = this.normalizeText(job.title);
+      const normalizedCompany = this.normalizeText(job.company);
+      
+      await db.insert(deletedJobs).values({
+        userId,
+        externalId: job.externalId || null,
+        url: job.url || null,
+        title: normalizedTitle,
+        company: normalizedCompany,
+        reason: "manual",
+        isExpired: false,
+      }).catch((error) => {
+        // Log error but don't fail deletion if logging fails
+        console.error("Failed to log deleted job:", error);
+      });
+    }
     
     // Delete the job - this will cascade delete ATS analyses via foreign key constraint
     // Note: We keep activity logs that reference this job for historical purposes
@@ -247,6 +251,7 @@ export class DatabaseStorage implements IStorage {
         title: this.normalizeText(job.title),
         company: this.normalizeText(job.company),
         reason: "old_unapplied",
+        isExpired: false, // Old unapplied jobs are not expired, so they shouldn't be re-added
       }));
       
       // Insert in batches to avoid issues with large arrays
@@ -311,12 +316,13 @@ export class DatabaseStorage implements IStorage {
     const normalizedTitle = this.normalizeText(job.title);
     const normalizedCompany = this.normalizeText(job.company);
     
-    // Check by externalId if available
+    // Check by externalId if available (only non-expired deletions)
     if (job.externalId) {
       const [deleted] = await db.select().from(deletedJobs).where(
         and(
           eq(deletedJobs.userId, userId),
-          eq(deletedJobs.externalId, job.externalId)
+          eq(deletedJobs.externalId, job.externalId),
+          eq(deletedJobs.isExpired, false) // Only check non-expired deletions
         )
       );
       if (deleted) {
@@ -324,12 +330,13 @@ export class DatabaseStorage implements IStorage {
       }
     }
     
-    // Check by URL if available
+    // Check by URL if available (only non-expired deletions)
     if (job.url) {
       const [deleted] = await db.select().from(deletedJobs).where(
         and(
           eq(deletedJobs.userId, userId),
-          eq(deletedJobs.url, job.url)
+          eq(deletedJobs.url, job.url),
+          eq(deletedJobs.isExpired, false) // Only check non-expired deletions
         )
       );
       if (deleted) {
@@ -337,12 +344,13 @@ export class DatabaseStorage implements IStorage {
       }
     }
     
-    // Check by normalized title + company
+    // Check by normalized title + company (only non-expired deletions)
     const [deleted] = await db.select().from(deletedJobs).where(
       and(
         eq(deletedJobs.userId, userId),
         eq(deletedJobs.title, normalizedTitle),
-        eq(deletedJobs.company, normalizedCompany)
+        eq(deletedJobs.company, normalizedCompany),
+        eq(deletedJobs.isExpired, false) // Only check non-expired deletions
       )
     );
     

@@ -28,6 +28,7 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
   const queryClient = useQueryClient();
   const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
   const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
+  const [isExpired, setIsExpired] = useState(false);
 
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => updateJob(job.id, { status }),
@@ -49,14 +50,17 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
   });
 
   const deleteJobMutation = useMutation({
-    mutationFn: () => deleteJob(job.id),
-    onSuccess: () => {
+    mutationFn: (expired: boolean) => deleteJob(job.id, expired),
+    onSuccess: (_, expired) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       toast({
         title: "Job deleted",
-        description: `"${job.title}" has been removed`,
+        description: expired 
+          ? `"${job.title}" has been removed (expired - can be re-added during scans)`
+          : `"${job.title}" has been removed`,
       });
+      setIsExpired(false); // Reset checkbox
     },
     onError: (error: Error) => {
       toast({
@@ -286,14 +290,31 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete Job</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete "{job.title}" at {job.company}? This action cannot be undone.
+              <AlertDialogDescription className="space-y-3">
+                <p>Are you sure you want to delete "{job.title}" at {job.company}? This action cannot be undone.</p>
+                <div className="flex items-start gap-2 pt-2 border-t">
+                  <Checkbox
+                    id={`expired-${job.id}`}
+                    checked={isExpired}
+                    onCheckedChange={(checked) => setIsExpired(checked === true)}
+                    disabled={deleteJobMutation.isPending}
+                  />
+                  <label
+                    htmlFor={`expired-${job.id}`}
+                    className="text-sm cursor-pointer select-none"
+                  >
+                    <span className="font-medium">Job was expired</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      If checked, this job can be re-added during future scans. If unchecked, it will be permanently blocked from re-adding.
+                    </p>
+                  </label>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel onClick={() => setIsExpired(false)}>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => deleteJobMutation.mutate()}
+                onClick={() => deleteJobMutation.mutate(isExpired)}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 disabled={deleteJobMutation.isPending}
               >
