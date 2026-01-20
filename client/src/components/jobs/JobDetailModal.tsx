@@ -247,6 +247,12 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
                     <span>Scanned {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true })}</span>
                   </div>
                 )}
+                {job.isApplied && job.appliedAt && (
+                  <div className="flex items-center gap-1.5" title={new Date(job.appliedAt).toLocaleString()}>
+                    <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-primary" />
+                    <span>Applied {formatDistanceToNow(new Date(job.appliedAt), { addSuffix: true })}</span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
