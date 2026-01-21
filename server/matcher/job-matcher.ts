@@ -39,7 +39,20 @@ export async function matchJobAgainstResumes(job: Job, userId: string): Promise<
     const messages: AIChatMessage[] = [
       {
         role: "system",
-        content: "You are an ATS (Applicant Tracking System) expert analyzer. Analyze job descriptions against resumes and provide detailed matching insights, missing keywords, and improvement suggestions."
+        content: `You are an ATS + job-fit scoring engine.
+
+You MUST produce a weighted 0–100 score using this rubric (total 100):
+- skills_match: 45
+- full_time_status: 20
+- date_posted: 15
+- experience_requirement: 10
+- pay_rate: 5
+- company_location: 5
+
+Rules:
+- Do not infer missing details. If missing/unclear, treat as "unknown" and score conservatively.
+- Skills matching is dominant: if skills_match < 20/45, cap overall score at 49.
+- Output JSON only (no markdown, no extra text).`
       },
       {
         role: "user",
@@ -48,6 +61,12 @@ export async function matchJobAgainstResumes(job: Job, userId: string): Promise<
 2. Missing keywords from the best resume
 3. Specific actionable suggestions to improve the resume
 4. Match scores for all resumes
+
+Additionally, you MUST include a score breakdown for the BEST resume:
+- Provide numeric points for each rubric category (must sum to "total")
+- "total" MUST equal the sum of the category points and be between 0 and 100
+      
+Return integers (no % signs, no strings) for all score fields.
 
 Job Title: ${job.title}
 Company: ${job.company}
@@ -61,6 +80,15 @@ Return your response as JSON in this exact format:
 {
   "bestResumeId": <number>,
   "matchScore": <number 0-100>,
+  "scoreBreakdown": {
+    "skills_match": <number 0-45>,
+    "full_time_status": <number 0-20>,
+    "date_posted": <number 0-15>,
+    "experience_requirement": <number 0-10>,
+    "pay_rate": <number 0-5>,
+    "company_location": <number 0-5>,
+    "total": <number 0-100>
+  },
   "missingKeywords": ["keyword1", "keyword2"],
   "suggestions": [
     {"title": "Suggestion title", "description": "Detailed suggestion", "type": "content"},

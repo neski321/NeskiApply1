@@ -41,6 +41,19 @@ export async function analyzeOptimizedResume(
   userId: string
 ): Promise<OptimizedResumeAnalysis> {
   try {
+    const coerceScore = (value: unknown): number | null => {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string") {
+        // Handles "85", "85.5", "85%", "Score: 85"
+        const m = value.match(/(\d+(\.\d+)?)/);
+        if (!m) return null;
+        const n = Number(m[1]);
+        if (!Number.isFinite(n)) return null;
+        return n;
+      }
+      return null;
+    };
+
     // Get user's AI provider preference for ATS analysis
     const aiProviderPreference = await storage.getSetting("ai_provider_preference", userId);
     const providerOverride = aiProviderPreference?.value || "auto";
@@ -90,8 +103,11 @@ ${optimizedResume.projects.map(proj =>
 ).filter(Boolean).join("\n\n")}` : ""}
 `;
 
-    // Get all resumes to include in comparison
-    const allResumes = await storage.getResumes(userId);
+    // Get all resumes to include in comparison, but REPLACE the original resume with the optimized content.
+    // If we include both the original resume content and the optimized content under the same ID,
+    // models tend to produce unstable or repeated scores.
+    const allResumesRaw = await storage.getResumes(userId);
+    const allResumes = allResumesRaw.filter(r => r.id !== originalResume.id);
 
     // Prepare messages for ATS analysis
     const messages = [
@@ -130,6 +146,8 @@ ${optimizedResume.projects.map(proj =>
       - Deduct points for missing, unclear, or mismatched information.
       - Be consistent and repeatable.
       - Output JSON only, exactly matching the user-requested schema.
+      - Return integers (no % signs, no strings) for all score fields.
+      - You MUST include a scoreBreakdown object for the BEST resume; category points must sum to total (0-100).
       `
       },
       {
@@ -167,6 +185,15 @@ ${optimizedResume.projects.map(proj =>
       {
         "bestResumeId": <number>,
         "matchScore": <number 0-100>,
+        "scoreBreakdown": {
+          "skills_match": <number 0-45>,
+          "full_time_status": <number 0-20>,
+          "date_posted": <number 0-15>,
+          "experience_requirement": <number 0-10>,
+          "pay_rate": <number 0-5>,
+          "company_location": <number 0-5>,
+          "total": <number 0-100>
+        },
         "missingKeywords": ["keyword1", "keyword2"],
         "suggestions": [
           { "title": "Suggestion title", "description": "Detailed suggestion", "type": "content" }
@@ -194,7 +221,7 @@ ${optimizedResume.projects.map(proj =>
     }
 
     // Parse the JSON response
-    let analysisResult;
+    let analysisResult: any;
     try {
       const jsonMatch = aiResult.content.match(/\{[\s\S]*\}/);
       analysisResult = JSON.parse(jsonMatch ? jsonMatch[0] : aiResult.content);
@@ -206,20 +233,23 @@ ${optimizedResume.projects.map(proj =>
     // Find the score for the optimized resume
     // The optimized resume should be evaluated as the original resume ID
     // Check if it's the best match, or find it in comparisons
-    let optimizedResumeScore = analysisResult.matchScore;
+    let optimizedResumeScore = coerceScore(analysisResult.matchScore) ?? originalScore;
     
     if (analysisResult.bestResumeId === originalResume.id) {
       // Optimized resume is the best match
-      optimizedResumeScore = analysisResult.matchScore;
+      optimizedResumeScore = coerceScore(analysisResult.matchScore) ?? optimizedResumeScore;
     } else if (analysisResult.resumeComparisons && Array.isArray(analysisResult.resumeComparisons)) {
       // Find the score in comparisons
       const comparison = analysisResult.resumeComparisons.find(
         (comp: any) => comp.resumeId === originalResume.id
       );
       if (comparison) {
-        optimizedResumeScore = comparison.score;
+        optimizedResumeScore = coerceScore(comparison.score) ?? optimizedResumeScore;
       }
     }
+    
+    // Guardrails: clamp and round to integer for DB storage + consistency
+    optimizedResumeScore = Math.max(0, Math.min(100, Math.round(optimizedResumeScore)));
 
     const newScore = optimizedResumeScore;
     const scoreImprovement = newScore - originalScore;
@@ -235,7 +265,7 @@ ${optimizedResume.projects.map(proj =>
       jobCompany: job.company,
       jobDescription: job.description,
       bestResumeId: analysisResult.bestResumeId,
-      matchScore: analysisResult.matchScore,
+      matchScore: coerceScore(analysisResult.matchScore) ?? optimizedResumeScore,
       missingKeywords: analysisResult.missingKeywords || [],
       suggestions: analysisResult.suggestions || [],
       resumeComparisons: analysisResult.resumeComparisons || []
