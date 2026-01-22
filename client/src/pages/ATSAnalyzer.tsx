@@ -19,10 +19,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2, ChevronLeft, ChevronRight, Trash2, Brain } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ArrowRight, Wand2, AlertTriangle, CheckCircle2, FileText, Search, Sparkles, Loader2, ChevronLeft, ChevronRight, Trash2, Brain, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis, getSettings } from "@/lib/api";
+import { analyzeJob, getResumes, getATSAnalysisByJobId, getAllAnalysesByJobId, getJobs, deleteATSAnalysis, getSettings, createJob, updateATSAnalysis } from "@/lib/api";
 import type { ATSAnalysis } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator, SelectGroup } from "@/components/ui/select";
@@ -37,6 +45,13 @@ export default function ATSAnalyzer() {
   const [jobDescription, setJobDescription] = useState("");
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
+  
+  // Save job dialog state
+  const [showSaveJobDialog, setShowSaveJobDialog] = useState(false);
+  const [jobLocation, setJobLocation] = useState("");
+  const [jobSalary, setJobSalary] = useState("");
+  const [jobUrl, setJobUrl] = useState("");
+  const [jobPostedDate, setJobPostedDate] = useState("");
   
   // Get user's default AI provider preference from settings
   const { data: settings = [] } = useQuery({
@@ -202,6 +217,9 @@ export default function ATSAnalyzer() {
           setTimeout(async () => {
             await queryClient.refetchQueries({ queryKey: ["atsAnalyses", data.jobId] });
           }, 500);
+        } else {
+          // If no jobId, show dialog to save job
+          setShowSaveJobDialog(true);
         }
       toast({
         title: "Analysis Complete",
@@ -216,6 +234,99 @@ export default function ATSAnalyzer() {
       });
     },
   });
+
+  const saveJobMutation = useMutation({
+    mutationFn: async (jobData: {
+      title: string;
+      company: string;
+      location: string;
+      description: string;
+      url: string;
+      salary?: string;
+      postedDate?: string;
+    }) => {
+      // Generate unique externalId for manually added jobs
+      const externalId = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create the job
+      const job = await createJob({
+        externalId,
+        title: jobData.title,
+        company: jobData.company,
+        location: jobData.location,
+        description: jobData.description,
+        url: jobData.url,
+        salary: jobData.salary || null,
+        postedDate: jobData.postedDate || undefined,
+        source: "Manual Entry",
+        status: "pending",
+      });
+
+      // Link the analysis to the newly created job
+      if (analysisResult) {
+        await updateATSAnalysis(analysisResult.id, { jobId: job.id });
+      }
+
+      return job;
+    },
+    onSuccess: (job) => {
+      setShowSaveJobDialog(false);
+      // Reset form fields
+      setJobLocation("");
+      setJobSalary("");
+      setJobUrl("");
+      setJobPostedDate("");
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["atsAnalyses"] });
+      
+      toast({
+        title: "Job Saved",
+        description: `"${job.title}" has been added to your job list.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to Save Job",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveJob = () => {
+    if (!jobTitle.trim() || !jobCompany.trim() || !jobDescription.trim() || !jobLocation.trim() || !jobUrl.trim()) {
+      toast({
+        title: "Missing Required Fields",
+        description: "Please fill in all required fields (Title, Company, Description, Location, URL).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate URL format
+    try {
+      new URL(jobUrl.trim());
+    } catch {
+      toast({
+        title: "Invalid URL",
+        description: "Please enter a valid URL (e.g., https://example.com/job)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    saveJobMutation.mutate({
+      title: jobTitle.trim(),
+      company: jobCompany.trim(),
+      location: jobLocation.trim(),
+      description: jobDescription.trim(),
+      url: jobUrl.trim(),
+      salary: jobSalary.trim() || undefined,
+      postedDate: jobPostedDate.trim() || undefined,
+    });
+  };
 
   const handleAnalyze = () => {
     if (!jobDescription) {
@@ -588,10 +699,25 @@ export default function ATSAnalyzer() {
                           </Badge>
                         )}
                       </div>
-                      <h2 className="text-2xl font-bold">{bestResume?.name || "Unknown Resume"}</h2>
-                      <p className="text-muted-foreground">
-                        This resume has the strongest alignment with the technical requirements.
-                      </p>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <h2 className="text-2xl font-bold">{bestResume?.name || "Unknown Resume"}</h2>
+                          <p className="text-muted-foreground">
+                            This resume has the strongest alignment with the technical requirements.
+                          </p>
+                        </div>
+                        {!analysisResult.jobId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowSaveJobDialog(true)}
+                            className="gap-2 flex-shrink-0"
+                          >
+                            <Save className="h-4 w-4" />
+                            Save Job
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -682,6 +808,143 @@ export default function ATSAnalyzer() {
           </div>
         </div>
       </div>
+
+      {/* Save Job Dialog */}
+      <Dialog open={showSaveJobDialog} onOpenChange={setShowSaveJobDialog}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Save className="h-5 w-5 text-primary" />
+              Save Job to Database
+            </DialogTitle>
+            <DialogDescription>
+              Add this job to your job list. All fields marked with * are required. This job will only be visible to you.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="save-job-title">
+                  Job Title <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="save-job-title"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                  placeholder="e.g. Senior React Developer"
+                  disabled={saveJobMutation.isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="save-job-company">
+                  Company <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="save-job-company"
+                  value={jobCompany}
+                  onChange={(e) => setJobCompany(e.target.value)}
+                  placeholder="e.g. Tech Corp"
+                  disabled={saveJobMutation.isPending}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="save-job-location">
+                Location <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="save-job-location"
+                value={jobLocation}
+                onChange={(e) => setJobLocation(e.target.value)}
+                placeholder="e.g. San Francisco, CA or Remote"
+                disabled={saveJobMutation.isPending}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="save-job-salary">Salary (Optional)</Label>
+                <Input
+                  id="save-job-salary"
+                  value={jobSalary}
+                  onChange={(e) => setJobSalary(e.target.value)}
+                  placeholder="e.g. $100,000 - $120,000"
+                  disabled={saveJobMutation.isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="save-job-posted-date">Posted Date (Optional)</Label>
+                <Input
+                  id="save-job-posted-date"
+                  value={jobPostedDate}
+                  onChange={(e) => setJobPostedDate(e.target.value)}
+                  placeholder="e.g. 2 days ago or 2025-01-15"
+                  disabled={saveJobMutation.isPending}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="save-job-url">
+                Job URL <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="save-job-url"
+                type="url"
+                value={jobUrl}
+                onChange={(e) => setJobUrl(e.target.value)}
+                placeholder="https://example.com/job-posting"
+                disabled={saveJobMutation.isPending}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="save-job-description">
+                Job Description <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="save-job-description"
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Full job description..."
+                className="min-h-[200px] font-mono text-sm"
+                disabled={saveJobMutation.isPending}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveJobDialog(false)}
+              disabled={saveJobMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveJob}
+              disabled={saveJobMutation.isPending || !jobTitle.trim() || !jobCompany.trim() || !jobDescription.trim() || !jobLocation.trim() || !jobUrl.trim()}
+              className="w-full sm:w-auto gap-2"
+            >
+              {saveJobMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Job
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

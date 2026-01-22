@@ -263,6 +263,20 @@ export async function getAllAnalysesByJobId(jobId: number): Promise<ATSAnalysis[
   return response.json();
 }
 
+export async function updateATSAnalysis(id: number, data: Partial<ATSAnalysis>): Promise<ATSAnalysis> {
+  const response = await fetch(`/api/ats/analyses/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to update analysis" }));
+    throw new Error(error.error || "Failed to update analysis");
+  }
+  return response.json();
+}
+
 export async function deleteATSAnalysis(id: number): Promise<void> {
   const response = await fetch(`/api/ats/analyses/${id}`, {
     method: "DELETE",

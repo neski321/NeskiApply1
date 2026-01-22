@@ -1336,6 +1336,42 @@ export async function registerRoutes(
     }
   });
 
+  // Update ATS analysis
+  app.patch("/api/ats/analyses/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const id = parseIdParam(req.params.id);
+      if (!id) {
+        return res.status(400).json({ error: "Invalid analysis ID" });
+      }
+
+      // Verify analysis exists and belongs to user
+      const existingAnalysis = await storage.getATSAnalysis(id, userId);
+      if (!existingAnalysis) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+
+      // Parse and validate update data
+      const { insertATSAnalysisSchema } = await import("@shared/schema");
+      const partialSchema = insertATSAnalysisSchema.partial();
+      const validatedData = partialSchema.parse(req.body);
+
+      const updated = await storage.updateATSAnalysis(id, validatedData, userId);
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Analysis not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      console.error("Error updating analysis:", error);
+      res.status(500).json({ error: "Failed to update analysis" });
+    }
+  });
+
   // Delete ATS analysis
   app.delete("/api/ats/analyses/:id", requireAuth, async (req, res) => {
     try {

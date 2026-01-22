@@ -59,6 +59,7 @@ export interface IStorage {
   createATSAnalysis(analysis: InsertATSAnalysis, userId: string): Promise<ATSAnalysis>;
   getATSAnalyses(userId: string, limit?: number): Promise<ATSAnalysis[]>;
   getATSAnalysis(id: number, userId: string): Promise<ATSAnalysis | undefined>;
+  updateATSAnalysis(id: number, analysis: Partial<InsertATSAnalysis>, userId: string): Promise<ATSAnalysis | undefined>;
   getATSAnalysisByJobId(jobId: number, userId: string): Promise<ATSAnalysis | undefined>;
   getAllAnalysesByJobId(jobId: number, userId: string): Promise<ATSAnalysis[]>;
   deleteATSAnalysis(id: number, userId: string): Promise<boolean>;
@@ -562,6 +563,15 @@ export class DatabaseStorage implements IStorage {
       .from(atsAnalyses)
       .where(and(eq(atsAnalyses.jobId, jobId), eq(atsAnalyses.userId, userId)))
       .orderBy(desc(atsAnalyses.createdAt));
+  }
+
+  async updateATSAnalysis(id: number, analysis: Partial<InsertATSAnalysis>, userId: string): Promise<ATSAnalysis | undefined> {
+    const [updated] = await db
+      .update(atsAnalyses)
+      .set(analysis)
+      .where(and(eq(atsAnalyses.id, id), eq(atsAnalyses.userId, userId)))
+      .returning();
+    return updated || undefined;
   }
 
   async deleteATSAnalysis(id: number, userId: string): Promise<boolean> {
