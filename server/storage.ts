@@ -201,18 +201,37 @@ export class DatabaseStorage implements IStorage {
       const normalizedTitle = this.normalizeText(job.title);
       const normalizedCompany = this.normalizeText(job.company);
       
-      await db.insert(deletedJobs).values({
-        userId,
-        externalId: job.externalId || null,
-        url: job.url || null,
-        title: normalizedTitle,
-        company: normalizedCompany,
-        reason: "manual",
-        isExpired: false,
-      }).catch((error) => {
-        // Log error but don't fail deletion if logging fails
-        console.error("Failed to log deleted job:", error);
-      });
+      // Try to insert with isExpired, fallback to without if column doesn't exist
+      try {
+        await db.insert(deletedJobs).values({
+          userId,
+          externalId: job.externalId || null,
+          url: job.url || null,
+          title: normalizedTitle,
+          company: normalizedCompany,
+          reason: "manual",
+          isExpired: false,
+        });
+      } catch (error: any) {
+        // If is_expired column doesn't exist, try without it
+        if (error?.code === '42703' || error?.message?.includes('does not exist')) {
+          console.warn("[deleteJob] is_expired column not found. Inserting without it. Please run migration: migrations/add_is_expired_column.sql");
+          await db.insert(deletedJobs).values({
+            userId,
+            externalId: job.externalId || null,
+            url: job.url || null,
+            title: normalizedTitle,
+            company: normalizedCompany,
+            reason: "manual",
+          } as any).catch((fallbackError) => {
+            // Log error but don't fail deletion if logging fails
+            console.error("Failed to log deleted job:", fallbackError);
+          });
+        } else {
+          // Some other error - log it but don't fail deletion
+          console.error("Failed to log deleted job:", error);
+        }
+      }
     }
     
     // Delete the job - this will cascade delete ATS analyses via foreign key constraint
@@ -256,10 +275,21 @@ export class DatabaseStorage implements IStorage {
       
       // Insert in batches to avoid issues with large arrays
       for (const deletedJob of deletedJobEntries) {
-        await db.insert(deletedJobs).values(deletedJob).catch((error) => {
-          // Log error but don't fail deletion if logging fails
-          console.error("Failed to log deleted job:", error);
-        });
+        try {
+          await db.insert(deletedJobs).values(deletedJob);
+        } catch (error: any) {
+          // If is_expired column doesn't exist, try without it
+          if (error?.code === '42703' || error?.message?.includes('does not exist')) {
+            const { isExpired, ...deletedJobWithoutExpired } = deletedJob;
+            await db.insert(deletedJobs).values(deletedJobWithoutExpired as any).catch((fallbackError) => {
+              // Log error but don't fail deletion if logging fails
+              console.error("Failed to log deleted job:", fallbackError);
+            });
+          } else {
+            // Some other error - log it but don't fail deletion
+            console.error("Failed to log deleted job:", error);
+          }
+        }
       }
     }
     
