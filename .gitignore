@@ -8,3 +8,12 @@ vite.config.ts.*
 uploads/**
 .env
 N8N_SETUP.md
+migrations/add_is_expired_column.sql
+.gitignore
+migrations/0000_violet_toro.sql
+.gitignore
+migrations/meta/0000_snapshot.json
+migrations/meta/_journal.json
+script/run-migration.ts
+.gitignore
+script/check-column.ts
