@@ -806,8 +806,10 @@ export async function registerRoutes(
   app.post("/api/jobs", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const validatedData = insertJobSchema.parse(req.body);
-      const job = await storage.createJob(validatedData, userId);
+      // userId is derived from session; do not require it in request body
+      const createJobSchema = insertJobSchema.omit({ userId: true });
+      const validatedData = createJobSchema.parse(req.body);
+      const job = await storage.createJob(validatedData as any, userId);
       res.status(201).json(job);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -826,7 +828,8 @@ export async function registerRoutes(
       if (!id) {
         return res.status(400).json({ error: "Invalid job ID" });
       }
-      const partialSchema = insertJobSchema.partial();
+      // Prevent updating userId; it is owned by the session/user
+      const partialSchema = insertJobSchema.omit({ userId: true }).partial();
       const validatedData = partialSchema.parse(req.body);
       
       // Get existing job to preserve appliedAt if already set
@@ -1105,7 +1108,7 @@ export async function registerRoutes(
         willUseGemini = true;
         willUseOpenRouter = true;
       } else {
-        const providers = preference.split(",").map(p => p.trim());
+        const providers = preference.split(",").map((p: string) => p.trim());
         willUsePerplexity = providers.includes("perplexity");
         willUseGemini = providers.includes("gemini");
         willUseOpenRouter = providers.includes("openrouter");
@@ -1773,18 +1776,22 @@ export async function registerRoutes(
               const MAX_RETRIES = 3;
               
               while (retryCount < MAX_RETRIES) {
+                // Declare outside try/catch so catch can reference safely
+                let preference = "auto";
+                let willUseOpenRouter = false;
+                let openrouterDailyLimit = false;
                 try {
                   // Check current API usage before processing
                   const usage = await getAPIUsage(userId);
                   
                   // Get user's AI provider preference to know which limits to check
                   const providerPreference = await storage.getSetting("ai_provider_preference", userId);
-                  const preference = providerPreference?.value || "auto";
+                  preference = providerPreference?.value || "auto";
                   
                   // Determine which providers might be used
                   let willUsePerplexity = false;
                   let willUseGemini = false;
-                  let willUseOpenRouter = false;
+                  willUseOpenRouter = false;
                   
                   if (preference === "auto" || preference === "perplexity,gemini,openrouter") {
                     willUsePerplexity = true;
