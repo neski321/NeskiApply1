@@ -47,12 +47,13 @@ export interface IStorage {
 
   // Jobs
   createJob(job: InsertJob, userId: string): Promise<Job>;
-  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]>;
+  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]>;
   getJob(id: number, userId: string): Promise<Job | undefined>;
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
-  deleteJob(id: number, userId: string, expired?: boolean): Promise<boolean>;
+  deleteJob(id: number, userId: string, expired?: boolean, reason?: string): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
   deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number>;
+  getDeletedJobs(userId: string, reason?: string): Promise<DeletedJob[]>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
 
   // ATS Analyses
@@ -152,7 +153,7 @@ export class DatabaseStorage implements IStorage {
     return newJob;
   }
 
-  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]> {
+  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]> {
     const conditions = [eq(jobs.userId, userId)];
     
     if (filters?.status) {
@@ -168,6 +169,15 @@ export class DatabaseStorage implements IStorage {
       } else {
         // For unapplied: isApplied is false OR null
         conditions.push(or(eq(jobs.isApplied, false), isNull(jobs.isApplied)));
+      }
+    }
+    if (filters?.rejected !== undefined) {
+      if (filters.rejected === true) {
+        // For rejected: rejected must be true
+        conditions.push(eq(jobs.rejected, true));
+      } else {
+        // For not rejected: rejected is false OR null
+        conditions.push(or(eq(jobs.rejected, false), isNull(jobs.rejected)));
       }
     }
 
@@ -188,7 +198,7 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  async deleteJob(id: number, userId: string, expired: boolean = false): Promise<boolean> {
+  async deleteJob(id: number, userId: string, expired: boolean = false, reason?: string): Promise<boolean> {
     // Get job details before deleting to log in deleted_jobs
     const [job] = await db.select().from(jobs).where(and(eq(jobs.id, id), eq(jobs.userId, userId)));
     
@@ -196,42 +206,52 @@ export class DatabaseStorage implements IStorage {
       return false;
     }
     
-    // Only log to deleted_jobs if NOT expired (expired jobs can be re-added)
-    if (!expired) {
-      // Log deleted job to prevent re-adding during scans/ingestion
-      const normalizedTitle = this.normalizeText(job.title);
-      const normalizedCompany = this.normalizeText(job.company);
-      
-      // Try to insert with isExpired, fallback to without if column doesn't exist
-      try {
+    // Determine the deletion reason
+    let deletionReason = reason || "manual";
+    let isExpiredValue = expired;
+    
+    // If reason is "too_inexperienced", mark as expired so it can be re-added
+    if (reason === "too_inexperienced") {
+      isExpiredValue = true;
+      deletionReason = "too_inexperienced";
+    } else if (expired) {
+      deletionReason = "expired";
+    }
+    
+    // Always log to deleted_jobs (for tracking purposes)
+    // If expired or too_inexperienced, set isExpired=true so job can be re-added
+    const normalizedTitle = this.normalizeText(job.title);
+    const normalizedCompany = this.normalizeText(job.company);
+    
+    // Try to insert with isExpired, fallback to without if column doesn't exist
+    try {
+      await db.insert(deletedJobs).values({
+        userId,
+        externalId: job.externalId || null,
+        url: job.url || null,
+        title: normalizedTitle,
+        company: normalizedCompany,
+        reason: deletionReason,
+        isExpired: isExpiredValue,
+      });
+    } catch (error: any) {
+      // If is_expired column doesn't exist, try without it
+      if (error?.code === '42703' || error?.message?.includes('does not exist')) {
+        console.warn("[deleteJob] is_expired column not found. Inserting without it. Please run migration: migrations/add_is_expired_column.sql");
         await db.insert(deletedJobs).values({
           userId,
           externalId: job.externalId || null,
           url: job.url || null,
           title: normalizedTitle,
           company: normalizedCompany,
-          reason: "manual",
-          isExpired: false,
+          reason: deletionReason,
+        } as any).catch((fallbackError) => {
+          // Log error but don't fail deletion if logging fails
+          console.error("Failed to log deleted job:", fallbackError);
         });
-      } catch (error: any) {
-        // If is_expired column doesn't exist, try without it
-        if (error?.code === '42703' || error?.message?.includes('does not exist')) {
-          console.warn("[deleteJob] is_expired column not found. Inserting without it. Please run migration: migrations/add_is_expired_column.sql");
-          await db.insert(deletedJobs).values({
-            userId,
-            externalId: job.externalId || null,
-            url: job.url || null,
-            title: normalizedTitle,
-            company: normalizedCompany,
-            reason: "manual",
-          } as any).catch((fallbackError) => {
-            // Log error but don't fail deletion if logging fails
-            console.error("Failed to log deleted job:", fallbackError);
-          });
-        } else {
-          // Some other error - log it but don't fail deletion
-          console.error("Failed to log deleted job:", error);
-        }
+      } else {
+        // Some other error - log it but don't fail deletion
+        console.error("Failed to log deleted job:", error);
       }
     }
     
@@ -331,6 +351,14 @@ export class DatabaseStorage implements IStorage {
       );
     
     return result.rowCount || 0;
+  }
+
+  async getDeletedJobs(userId: string, reason?: string): Promise<DeletedJob[]> {
+    const conditions = [eq(deletedJobs.userId, userId)];
+    if (reason) {
+      conditions.push(eq(deletedJobs.reason, reason));
+    }
+    return await db.select().from(deletedJobs).where(and(...conditions)).orderBy(desc(deletedJobs.deletedAt));
   }
 
   /**

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Search, SlidersHorizontal, Filter, ArrowUpDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getJobs } from "@/lib/api";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { Job } from "@shared/schema";
 import {
   Select,
@@ -31,8 +31,20 @@ export default function JobFeed() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [appliedFilter, setAppliedFilter] = useState<string>("unapplied"); // "all", "applied", "unapplied" - default to unapplied to hide applied jobs
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company"
+  const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company", "recently-applied"
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+
+  // Auto-switch to "recently-applied" sort when applied filter is selected
+  useEffect(() => {
+    if (appliedFilter === "applied" && sortBy !== "recently-applied" && sortBy !== "match-score" && sortBy !== "oldest" && sortBy !== "company") {
+      setSortBy("recently-applied");
+    } else if (appliedFilter !== "applied" && sortBy === "recently-applied") {
+      // Switch back to default when applied filter is removed
+      setSortBy("recently-scanned");
+    }
+  }, [appliedFilter, sortBy]);
+
+  const effectiveSortBy = sortBy;
 
   // Fetch all jobs
   const { data: allJobs = [], isLoading } = useQuery({
@@ -94,10 +106,22 @@ export default function JobFeed() {
   // Sort jobs based on selected sort option
   const sortedJobs = useMemo(() => {
     return [...filteredJobs].sort((a, b) => {
-      switch (sortBy) {
+      switch (effectiveSortBy) {
         case "recently-scanned":
           // Sort by creation date (newest first)
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        
+        case "recently-applied":
+          // Sort by appliedAt date (most recently applied first)
+          // Jobs without appliedAt go to the end
+          if (!a.appliedAt && !b.appliedAt) {
+            // Both don't have appliedAt, sort by creation date (newest first)
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          }
+          if (!a.appliedAt) return 1; // a goes to end
+          if (!b.appliedAt) return -1; // b goes to end
+          // Both have appliedAt, sort by most recent first
+          return new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime();
         
         case "match-score":
           // Sort by match score (highest first), then by creation date (newest first)
@@ -132,7 +156,7 @@ export default function JobFeed() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
     });
-  }, [filteredJobs, sortBy]);
+  }, [filteredJobs, effectiveSortBy]);
 
   const clearFilters = () => {
     setStatusFilter("all");
@@ -140,6 +164,7 @@ export default function JobFeed() {
     setSourceFilter("all");
     setAppliedFilter("all");
     setSearchQuery("");
+    setSortBy("recently-scanned"); // Reset sort when clearing filters
   };
 
   const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "";
@@ -169,6 +194,9 @@ export default function JobFeed() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="recently-scanned">Recently Scanned</SelectItem>
+                  {appliedFilter === "applied" && (
+                    <SelectItem value="recently-applied">Recently Applied</SelectItem>
+                  )}
                   <SelectItem value="match-score">Match Score</SelectItem>
                   <SelectItem value="oldest">Oldest First</SelectItem>
                   <SelectItem value="company">Company (A-Z)</SelectItem>
