@@ -151,11 +151,12 @@ export async function uploadResumeFile(file: File, name: string): Promise<Resume
 
 // ============ JOBS API ============
 
-export async function getJobs(filters?: { status?: string; minMatchScore?: number; isApplied?: boolean }): Promise<Job[]> {
+export async function getJobs(filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.append("status", filters.status);
   if (filters?.minMatchScore) params.append("minMatchScore", filters.minMatchScore.toString());
   if (filters?.isApplied !== undefined) params.append("isApplied", filters.isApplied.toString());
+  if (filters?.rejected !== undefined) params.append("rejected", filters.rejected.toString());
   
   const response = await fetch(`/api/jobs?${params}`);
   if (!response.ok) throw new Error("Failed to fetch jobs");
@@ -188,8 +189,22 @@ export async function updateJob(id: number, job: Partial<InsertJob>): Promise<Jo
   return response.json();
 }
 
-export async function deleteJob(id: number, expired: boolean = false): Promise<void> {
-  const url = `/api/jobs/${id}${expired ? "?expired=true" : ""}`;
+export async function getDeletedJobs(reason?: string): Promise<any[]> {
+  const params = new URLSearchParams();
+  if (reason) params.append("reason", reason);
+  const url = `/api/jobs/deleted${params.toString() ? `?${params.toString()}` : ""}`;
+  const response = await fetch(url, {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to fetch deleted jobs");
+  return response.json();
+}
+
+export async function deleteJob(id: number, expired: boolean = false, reason?: string): Promise<void> {
+  const params = new URLSearchParams();
+  if (expired) params.append("expired", "true");
+  if (reason) params.append("reason", reason);
+  const url = `/api/jobs/${id}${params.toString() ? `?${params.toString()}` : ""}`;
   const response = await fetch(url, {
     method: "DELETE",
     credentials: "include",

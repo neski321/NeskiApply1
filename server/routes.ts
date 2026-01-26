@@ -695,13 +695,16 @@ export async function registerRoutes(
   app.get("/api/jobs", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const { status, minMatchScore, isApplied } = req.query;
+      const { status, minMatchScore, isApplied, rejected } = req.query;
       
       const filters: any = {};
       if (status) filters.status = status as string;
       if (minMatchScore) filters.minMatchScore = parseInt(minMatchScore as string);
       if (isApplied !== undefined) {
         filters.isApplied = isApplied === "true";
+      }
+      if (rejected !== undefined) {
+        filters.rejected = rejected === "true";
       }
       
       const jobs = await storage.getJobs(userId, filters);
@@ -917,6 +920,19 @@ export async function registerRoutes(
     }
   });
 
+  // Get deleted jobs (for filtering)
+  app.get("/api/jobs/deleted", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const reason = req.query.reason as string | undefined;
+      const deletedJobs = await storage.getDeletedJobs(userId, reason);
+      res.json(deletedJobs);
+    } catch (error) {
+      console.error("Error fetching deleted jobs:", error);
+      res.status(500).json({ error: "Failed to fetch deleted jobs" });
+    }
+  });
+
   // Delete job
   app.delete("/api/jobs/:id", requireAuth, async (req, res) => {
     try {
@@ -926,8 +942,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid job ID" });
       }
       
-      // Get expired parameter from query string or request body
+      // Get expired and reason parameters from query string or request body
       const expired = req.query.expired === "true" || (req.body && req.body.expired === true);
+      const reason = req.query.reason as string || (req.body && req.body.reason as string) || undefined;
       
       // Get job details before deleting for activity log
       const job = await storage.getJob(id, userId);
@@ -936,7 +953,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Job not found" });
       }
       
-      const deleted = await storage.deleteJob(id, userId, expired);
+      const deleted = await storage.deleteJob(id, userId, expired, reason);
       
       if (!deleted) {
         return res.status(404).json({ error: "Job not found" });
@@ -944,10 +961,15 @@ export async function registerRoutes(
       
       // Log the deletion
       const { activityLogger } = await import("./logger");
-      const logMessage = expired 
-        ? `Job deleted (expired): "${job.title}" at ${job.company} - can be re-added during scans`
-        : `Job deleted: "${job.title}" at ${job.company}`;
-      await activityLogger.info(logMessage, { jobId: id, expired }, userId);
+      let logMessage: string;
+      if (reason === "too_inexperienced") {
+        logMessage = `Job deleted (too inexperienced): "${job.title}" at ${job.company} - can be re-added during scans`;
+      } else if (expired) {
+        logMessage = `Job deleted (expired): "${job.title}" at ${job.company} - can be re-added during scans`;
+      } else {
+        logMessage = `Job deleted: "${job.title}" at ${job.company}`;
+      }
+      await activityLogger.info(logMessage, { jobId: id, expired, reason }, userId);
       
       res.status(204).send();
     } catch (error) {

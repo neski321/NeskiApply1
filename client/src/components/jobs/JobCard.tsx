@@ -29,6 +29,7 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
   const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
   const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
+  const [isTooInexperienced, setIsTooInexperienced] = useState(false);
 
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => updateJob(job.id, { status }),
@@ -50,17 +51,22 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
   });
 
   const deleteJobMutation = useMutation({
-    mutationFn: (expired: boolean) => deleteJob(job.id, expired),
-    onSuccess: (_, expired) => {
+    mutationFn: (options: { expired: boolean; reason?: string }) => deleteJob(job.id, options.expired, options.reason),
+    onSuccess: (_, options) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+      let description = `"${job.title}" has been removed`;
+      if (options.reason === "too_inexperienced") {
+        description = `"${job.title}" has been removed (too inexperienced - can be re-added during scans)`;
+      } else if (options.expired) {
+        description = `"${job.title}" has been removed (expired - can be re-added during scans)`;
+      }
       toast({
         title: "Job deleted",
-        description: expired 
-          ? `"${job.title}" has been removed (expired - can be re-added during scans)`
-          : `"${job.title}" has been removed`,
+        description,
       });
       setIsExpired(false); // Reset checkbox
+      setIsTooInexperienced(false); // Reset checkbox
     },
     onError: (error: Error) => {
       toast({
@@ -292,29 +298,60 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
               <AlertDialogTitle>Delete Job</AlertDialogTitle>
               <AlertDialogDescription className="space-y-3">
                 <p>Are you sure you want to delete "{job.title}" at {job.company}? This action cannot be undone.</p>
-                <div className="flex items-start gap-2 pt-2 border-t">
-                  <Checkbox
-                    id={`expired-${job.id}`}
-                    checked={isExpired}
-                    onCheckedChange={(checked) => setIsExpired(checked === true)}
-                    disabled={deleteJobMutation.isPending}
-                  />
-                  <label
-                    htmlFor={`expired-${job.id}`}
-                    className="text-sm cursor-pointer select-none"
-                  >
-                    <span className="font-medium">Job was expired</span>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      If checked, this job can be re-added during future scans. If unchecked, it will be permanently blocked from re-adding.
-                    </p>
-                  </label>
+                <div className="space-y-3 pt-2 border-t">
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={`expired-${job.id}`}
+                      checked={isExpired}
+                      onCheckedChange={(checked) => {
+                        setIsExpired(checked === true);
+                        if (checked) setIsTooInexperienced(false); // Uncheck other option
+                      }}
+                      disabled={deleteJobMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`expired-${job.id}`}
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      <span className="font-medium">Job was expired</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        If checked, this job can be re-added during future scans. If unchecked, it will be permanently blocked from re-adding.
+                      </p>
+                    </label>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={`too-inexperienced-${job.id}`}
+                      checked={isTooInexperienced}
+                      onCheckedChange={(checked) => {
+                        setIsTooInexperienced(checked === true);
+                        if (checked) setIsExpired(false); // Uncheck other option
+                      }}
+                      disabled={deleteJobMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`too-inexperienced-${job.id}`}
+                      className="text-sm cursor-pointer select-none"
+                    >
+                      <span className="font-medium">Too Inexperienced</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        If checked, this job will be marked as "Too Inexperienced" and can be re-added during future scans.
+                      </p>
+                    </label>
+                  </div>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setIsExpired(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel onClick={() => {
+                setIsExpired(false);
+                setIsTooInexperienced(false);
+              }}>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => deleteJobMutation.mutate(isExpired)}
+                onClick={() => deleteJobMutation.mutate({
+                  expired: isExpired,
+                  reason: isTooInexperienced ? "too_inexperienced" : undefined
+                })}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 disabled={deleteJobMutation.isPending}
               >
