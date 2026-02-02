@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Resume } from "@shared/schema";
@@ -522,16 +523,39 @@ export default function Resumes() {
                     </div>
                   </div>
 
-                  <div className="pt-4 mt-4 border-t border-border/50 flex justify-between items-center">
-                     <span className="text-xs font-medium text-emerald-500">Active for Matching</span>
-                     <Button 
-                       variant="ghost" 
-                       size="sm" 
-                       className="h-7 text-xs gap-1"
-                       onClick={() => handleView(resume)}
-                     >
-                       <Download className="h-3 w-3" /> View
-                     </Button>
+                  <div className="pt-4 mt-4 border-t border-border/50 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor={`active-${resume.id}`} className="text-xs font-medium cursor-pointer">
+                        Active for matching
+                      </Label>
+                      <Switch
+                        id={`active-${resume.id}`}
+                        checked={resume.activeForMatching !== false}
+                        disabled={updateMutation.isPending}
+                        onCheckedChange={(checked) => {
+                          const activeCount = resumes.filter(r => r.activeForMatching !== false).length;
+                          if (!checked && activeCount <= 1) {
+                            toast({
+                              title: "At least one resume must stay active",
+                              description: "Turn on another resume for matching first, then you can turn this one off.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          updateMutation.mutate({ id: resume.id, data: { activeForMatching: checked } });
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-7 text-xs gap-1"
+                        onClick={() => handleView(resume)}
+                      >
+                        <Download className="h-3 w-3" /> View
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

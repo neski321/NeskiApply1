@@ -15,11 +15,11 @@ export interface MatchResult {
  */
 export async function matchJobAgainstResumes(job: Job, userId: string): Promise<MatchResult | null> {
   try {
-    // Get all resumes for this user
-    const resumes = await storage.getResumes(userId);
+    // Get resumes that are active for matching
+    const resumes = await storage.getResumesForMatching(userId);
     
     if (resumes.length === 0) {
-      console.log("No resumes found, skipping job matching");
+      console.log("No resumes active for matching, skipping job matching");
       return null;
     }
 
@@ -145,9 +145,9 @@ export async function matchAndUpdateJob(jobId: number, userId: string): Promise<
     }
 
     // Check prerequisites and log specific reasons for failure
-    const resumes = await storage.getResumes(userId);
+    const resumes = await storage.getResumesForMatching(userId);
     if (resumes.length === 0) {
-      console.warn(`[Match] Job ${jobId} (${job.title}): No resumes found for user ${userId}`);
+      console.warn(`[Match] Job ${jobId} (${job.title}): No resumes active for matching for user ${userId}`);
       return false;
     }
 

@@ -103,10 +103,8 @@ ${optimizedResume.projects.map(proj =>
 ).filter(Boolean).join("\n\n")}` : ""}
 `;
 
-    // Get all resumes to include in comparison, but REPLACE the original resume with the optimized content.
-    // If we include both the original resume content and the optimized content under the same ID,
-    // models tend to produce unstable or repeated scores.
-    const allResumesRaw = await storage.getResumes(userId);
+    // Get resumes active for matching to include in comparison; exclude the original resume (replaced by optimized content).
+    const allResumesRaw = await storage.getResumesForMatching(userId);
     const allResumes = allResumesRaw.filter(r => r.id !== originalResume.id);
 
     // Prepare messages for ATS analysis

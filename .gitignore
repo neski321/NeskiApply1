@@ -17,3 +17,4 @@ migrations/meta/_journal.json
 script/run-migration.ts
 .gitignore
 script/check-column.ts
+migrations/add_active_for_matching_column.sql

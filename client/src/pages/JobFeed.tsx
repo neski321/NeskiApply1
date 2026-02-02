@@ -5,7 +5,7 @@ import { ZeroScoreJobsNotification } from "@/components/ZeroScoreJobsNotificatio
 import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, SlidersHorizontal, Filter, ArrowUpDown } from "lucide-react";
+import { Search, SlidersHorizontal, Filter, ArrowUpDown, Briefcase } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getJobs } from "@/lib/api";
 import { useState, useMemo, useEffect } from "react";
@@ -32,7 +32,16 @@ export default function JobFeed() {
   const [appliedFilter, setAppliedFilter] = useState<string>("unapplied"); // "all", "applied", "unapplied" - default to unapplied to hide applied jobs
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company", "recently-applied"
+  const [titleFilter, setTitleFilter] = useState(""); // Filter by job title/role only (e.g. senior, jr, web developer) - separate from general search
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+
+  // Quick title presets: value is what we match in the title (we also match common abbreviations)
+  const TITLE_PRESETS = [
+    { label: "Senior", value: "senior", aliases: ["sr", "sr."] },
+    { label: "Junior", value: "junior", aliases: ["jr", "jr."] },
+    { label: "Web Developer", value: "web developer", aliases: ["web dev"] },
+    { label: "Lead", value: "lead", aliases: [] },
+  ] as const;
 
   // Auto-switch to "recently-applied" sort when applied filter is selected
   useEffect(() => {
@@ -68,7 +77,19 @@ export default function JobFeed() {
     },
   });
 
-  // Client-side search and source filtering
+  // Helper: does job title match the title filter? (title-only; supports presets with aliases)
+  const titleMatchesFilter = (job: Job, filter: string): boolean => {
+    if (!filter.trim()) return true;
+    const raw = filter.trim().toLowerCase();
+    const title = (job.title || "").toLowerCase();
+    const preset = TITLE_PRESETS.find(p => p.value === raw || p.aliases.some(a => raw === a.toLowerCase()));
+    if (preset) {
+      return title.includes(preset.value) || preset.aliases.some(a => title.includes(a));
+    }
+    return title.includes(raw);
+  };
+
+  // Client-side search, source filtering, and title-only filtering
   const filteredJobs = useMemo(() => {
     let filtered = allJobs;
 
@@ -79,14 +100,23 @@ export default function JobFeed() {
           return job.source === "JSearch";
         }
         if (sourceFilter === "n8n") {
-          // Match "n8n" or "n8n (Indeed)", "n8n (LinkedIn)", etc.
           return job.source?.toLowerCase().includes("n8n") || job.source === "n8n";
         }
         return true;
       });
     }
 
-    // Filter by search query
+    // Filter by job title/role only (separate from general search - title-only)
+    if (titleFilter.trim()) {
+      const terms = titleFilter.split(",").map(t => t.trim()).filter(Boolean);
+      filtered = filtered.filter((job) =>
+        terms.length === 0
+          ? true
+          : terms.some(term => titleMatchesFilter(job, term))
+      );
+    }
+
+    // Filter by search query (title, company, location, tags, description)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((job) => {
@@ -95,13 +125,12 @@ export default function JobFeed() {
         const locationMatch = job.location?.toLowerCase().includes(query);
         const tagsMatch = job.tags?.some(tag => tag.toLowerCase().includes(query));
         const descriptionMatch = job.description?.toLowerCase().includes(query);
-        
         return titleMatch || companyMatch || locationMatch || tagsMatch || descriptionMatch;
       });
     }
 
     return filtered;
-  }, [allJobs, searchQuery, sourceFilter]);
+  }, [allJobs, searchQuery, sourceFilter, titleFilter]);
 
   // Sort jobs based on selected sort option
   const sortedJobs = useMemo(() => {
@@ -164,10 +193,11 @@ export default function JobFeed() {
     setSourceFilter("all");
     setAppliedFilter("all");
     setSearchQuery("");
-    setSortBy("recently-scanned"); // Reset sort when clearing filters
+    setTitleFilter("");
+    setSortBy("recently-scanned");
   };
 
-  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "";
+  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "" || titleFilter.trim() !== "";
 
   return (
     <Layout>
@@ -209,7 +239,7 @@ export default function JobFeed() {
                   Filters
                   {hasActiveFilters && (
                     <span className="ml-1 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
-                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all", appliedFilter !== "all"].filter(Boolean).length}
+                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all", appliedFilter !== "all", titleFilter.trim() !== ""].filter(Boolean).length}
                     </span>
                   )}
                 </Button>
@@ -295,6 +325,52 @@ export default function JobFeed() {
             </div>
           </div>
 
+          {/* Job title / role filter - separate from general search and from status/source filters */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Briefcase className="h-4 w-4" />
+              <span>Job title / role</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {TITLE_PRESETS.map((preset) => {
+                const isActive = titleFilter.trim().toLowerCase() === preset.value || preset.aliases.some(a => titleFilter.trim().toLowerCase() === a.toLowerCase());
+                return (
+                  <Button
+                    key={preset.value}
+                    type="button"
+                    variant={isActive ? "default" : "outline"}
+                    size="sm"
+                    className="h-8"
+                    onClick={() => setTitleFilter(isActive ? "" : preset.value)}
+                  >
+                    {preset.label}
+                  </Button>
+                );
+              })}
+              <Input
+                placeholder="e.g. senior, jr, web developer"
+                className="h-8 w-48 bg-card/50 border-border/50 focus:border-primary/50"
+                value={titleFilter}
+                onChange={(e) => setTitleFilter(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setTitleFilter("")}
+              />
+              {titleFilter.trim() && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-muted-foreground"
+                  onClick={() => setTitleFilter("")}
+                >
+                  Clear title
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Shows only jobs whose title contains the word(s). Separate from the search bar above.
+            </p>
+          </div>
+
           {hasActiveFilters && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-muted-foreground">Active filters:</span>
@@ -316,6 +392,11 @@ export default function JobFeed() {
               {appliedFilter !== "all" && (
                 <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
                   {appliedFilter === "applied" ? "Applied" : "Not Applied"}
+                </span>
+              )}
+              {titleFilter.trim() && (
+                <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
+                  Title: "{titleFilter.trim()}"
                 </span>
               )}
               {searchQuery.trim() && (

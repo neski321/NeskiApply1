@@ -41,9 +41,11 @@ export interface IStorage {
   // Resumes
   createResume(resume: InsertResume, userId: string): Promise<Resume>;
   getResumes(userId: string): Promise<Resume[]>;
+  getResumesForMatching(userId: string): Promise<Resume[]>;
   getResume(id: number, userId: string): Promise<Resume | undefined>;
   updateResume(id: number, resume: Partial<InsertResume>, userId: string): Promise<Resume | undefined>;
   deleteResume(id: number, userId: string): Promise<boolean>;
+  countActiveResumesForMatching(userId: string): Promise<number>;
 
   // Jobs
   createJob(job: InsertJob, userId: string): Promise<Job>;
@@ -126,6 +128,16 @@ export class DatabaseStorage implements IStorage {
 
   async getResumes(userId: string): Promise<Resume[]> {
     return await db.select().from(resumes).where(eq(resumes.userId, userId)).orderBy(desc(resumes.updatedAt));
+  }
+
+  async getResumesForMatching(userId: string): Promise<Resume[]> {
+    const all = await db.select().from(resumes).where(eq(resumes.userId, userId)).orderBy(desc(resumes.updatedAt));
+    return all.filter(r => r.activeForMatching !== false);
+  }
+
+  async countActiveResumesForMatching(userId: string): Promise<number> {
+    const all = await db.select({ id: resumes.id, activeForMatching: resumes.activeForMatching }).from(resumes).where(eq(resumes.userId, userId));
+    return all.filter(r => r.activeForMatching !== false).length;
   }
 
   async getResume(id: number, userId: string): Promise<Resume | undefined> {

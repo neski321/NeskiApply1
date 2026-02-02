@@ -5,7 +5,6 @@ import { SkillGapAnalysisModal } from "@/components/SkillGapAnalysisModal";
 import { UnscannedJobsNotification } from "@/components/UnscannedJobsNotification";
 import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCircle, Clock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { useMemo, useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getJobs, getStats, syncJobs, getSettings, getDeletedJobs } from "@/lib/api";
+import { getJobs, getStats, syncJobs, getSettings } from "@/lib/api";
 import type { Job } from "@shared/schema";
 import { useLocation } from "wouter";
 import {
@@ -30,7 +29,6 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [appliedFilter, setAppliedFilter] = useState<string>("unapplied"); // "all", "applied", "unapplied" - default to unapplied to hide applied jobs
   const [rejectedFilter, setRejectedFilter] = useState<boolean>(false); // Filter by rejected status
-  const [tooInexperiencedFilter, setTooInexperiencedFilter] = useState<boolean>(false); // Filter by too inexperienced deleted jobs
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [showSkillGapModal, setShowSkillGapModal] = useState(false);
   
@@ -54,22 +52,10 @@ export default function Dashboard() {
     queryFn: () => getJobs(),
   });
 
-  // Fetch deleted jobs with "too_inexperienced" reason
-  const { data: tooInexperiencedJobs = [] } = useQuery({
-    queryKey: ["deletedJobs", "too_inexperienced"],
-    queryFn: () => getDeletedJobs("too_inexperienced"),
-    enabled: tooInexperiencedFilter,
-  });
-
   // Fetch real data with applied and rejected filters
   const { data: allJobs = [], isLoading: jobsLoading } = useQuery({
-    queryKey: ["jobs", appliedFilter, rejectedFilter, tooInexperiencedFilter],
+    queryKey: ["jobs", appliedFilter, rejectedFilter],
     queryFn: () => {
-      // If showing too inexperienced jobs, return empty (we'll show deleted jobs instead)
-      if (tooInexperiencedFilter) {
-        return Promise.resolve([]);
-      }
-      
       const filters: { isApplied?: boolean; rejected?: boolean } = {};
       if (appliedFilter === "applied") {
         filters.isApplied = true;
@@ -86,18 +72,13 @@ export default function Dashboard() {
     },
   });
 
-  // Filter jobs based on high priority threshold (unless showing rejected or too inexperienced jobs)
+  // Filter jobs based on high priority threshold (unless showing rejected jobs)
   const jobs = useMemo(() => {
     if (rejectedFilter) {
-      // When showing rejected jobs, show all rejected jobs regardless of match score
       return allJobs;
     }
-    if (tooInexperiencedFilter) {
-      // When showing too inexperienced jobs, return empty (we'll show deleted jobs instead)
-      return [];
-    }
     return allJobs.filter(j => j.matchScore && j.matchScore >= highPriorityThreshold);
-  }, [allJobs, highPriorityThreshold, rejectedFilter, tooInexperiencedFilter]);
+  }, [allJobs, highPriorityThreshold, rejectedFilter]);
 
   // When showing applied jobs, also get unapplied jobs to fill remaining spots
   const unappliedJobsForReplacement = useMemo(() => {
@@ -241,9 +222,9 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {statsLoading ? (
-            Array.from({ length: 5 }).map((_, i) => (
+            Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="bg-card/50 border-border/50">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Loading...</CardTitle>
@@ -298,11 +279,7 @@ export default function Dashboard() {
                 className="bg-card/50 border-border/50 backdrop-blur-sm hover:bg-card/80 transition-colors cursor-pointer"
                 onClick={() => {
                   setRejectedFilter(!rejectedFilter);
-                  // Clear other filters when showing rejected jobs
-                  if (!rejectedFilter) {
-                    setAppliedFilter("all");
-                    setTooInexperiencedFilter(false);
-                  }
+                  if (!rejectedFilter) setAppliedFilter("all");
                 }}
               >
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -322,35 +299,6 @@ export default function Dashboard() {
                   </p>
                 </CardContent>
               </Card>
-              
-              <Card 
-                className="bg-card/50 border-border/50 backdrop-blur-sm hover:bg-card/80 transition-colors cursor-pointer"
-                onClick={() => {
-                  setTooInexperiencedFilter(!tooInexperiencedFilter);
-                  // Clear other filters when showing too inexperienced jobs
-                  if (!tooInexperiencedFilter) {
-                    setAppliedFilter("all");
-                    setRejectedFilter(false);
-                  }
-                }}
-              >
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Too Inexperienced</CardTitle>
-                  <XCircle className={`h-4 w-4 ${tooInexperiencedFilter ? "text-orange-500" : "text-primary"}`} />
-                </CardHeader>
-                <CardContent>
-                  <div className={`text-2xl font-bold font-mono ${tooInexperiencedFilter ? "text-orange-500" : ""}`}>
-                    {tooInexperiencedJobs.length}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                    {tooInexperiencedFilter ? (
-                      <span className="text-orange-500 font-medium">Showing too inexperienced jobs</span>
-                    ) : (
-                      <span className="text-muted-foreground">Click to view</span>
-                    )}
-                  </p>
-                </CardContent>
-              </Card>
             </>
           ) : null}
         </div>
@@ -360,17 +308,11 @@ export default function Dashboard() {
           <div className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="text-xl font-semibold flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${
-                  rejectedFilter ? "bg-destructive" : 
-                  tooInexperiencedFilter ? "bg-orange-500" : 
-                  "bg-emerald-500"
-                } animate-pulse`} />
-                {rejectedFilter ? "Rejected Jobs" : 
-                 tooInexperiencedFilter ? "Too Inexperienced Jobs" : 
-                 "High Priority Matches"}
+                <span className={`h-2 w-2 rounded-full ${rejectedFilter ? "bg-destructive" : "bg-emerald-500"} animate-pulse`} />
+                {rejectedFilter ? "Rejected Jobs" : "High Priority Matches"}
               </h2>
               <div className="flex items-center gap-2">
-                {!rejectedFilter && !tooInexperiencedFilter && (
+                {!rejectedFilter && (
                   <Select value={appliedFilter} onValueChange={setAppliedFilter}>
                     <SelectTrigger className="w-[140px] h-8 text-xs">
                       <SelectValue placeholder="All jobs" />
@@ -382,20 +324,12 @@ export default function Dashboard() {
                     </SelectContent>
                   </Select>
                 )}
-                {(rejectedFilter || tooInexperiencedFilter) && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="h-8 text-xs"
-                    onClick={() => {
-                      setRejectedFilter(false);
-                      setTooInexperiencedFilter(false);
-                    }}
-                  >
+                {rejectedFilter && (
+                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setRejectedFilter(false)}>
                     Clear Filter
                   </Button>
                 )}
-                {!rejectedFilter && !tooInexperiencedFilter && (
+                {!rejectedFilter && (
                   <Button variant="ghost" size="sm" className="text-muted-foreground">
                     View All
                   </Button>
@@ -405,45 +339,6 @@ export default function Dashboard() {
 
             {jobsLoading ? (
               <div className="text-center py-12 text-muted-foreground">Loading jobs...</div>
-            ) : tooInexperiencedFilter ? (
-              // Show deleted jobs with "too_inexperienced" reason
-              tooInexperiencedJobs.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">No "Too Inexperienced" jobs found.</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Jobs marked as "Too Inexperienced" when deleted will appear here. These jobs can be re-added during future scans.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-4 animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-forwards">
-                  {tooInexperiencedJobs.map((deletedJob) => (
-                    <Card key={deletedJob.id} className="bg-card/50 border-border/50 p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-base">{deletedJob.title}</h3>
-                          <p className="text-sm text-muted-foreground mt-1">{deletedJob.company}</p>
-                          {deletedJob.url && (
-                            <a 
-                              href={deletedJob.url} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline mt-2 inline-block"
-                            >
-                              View Job Posting
-                            </a>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-2">
-                            Deleted {new Date(deletedJob.deletedAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/50">
-                          Too Inexperienced
-                        </Badge>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )
             ) : rejectedFilter ? (
               // Show all rejected jobs when rejected filter is active
               jobs.length === 0 ? (
