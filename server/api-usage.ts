@@ -1,5 +1,7 @@
 import { storage } from "./storage";
 import { activityLogger } from "./logger";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { startOfDay, addDays } from "date-fns";
 
 /**
  * API Usage Limits
@@ -62,23 +64,25 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
   try {
     // Get current date/time (used for both daily and monthly calculations)
     const now = new Date();
-    
+
+    // User's timezone for "today" and reset at 12:00 AM in their timezone (from Settings > cron_timezone)
+    const tzSetting = await storage.getSetting("cron_timezone", userId);
+    const timezone = tzSetting?.value || "America/Toronto";
+
+    // Start of today and tomorrow at 12:00 AM in user's timezone (as UTC moments)
+    const zonedNow = toZonedTime(now, timezone);
+    const startOfTodayInTZ = startOfDay(zonedNow);
+    const startOfTomorrowInTZ = addDays(startOfTodayInTZ, 1);
+    const startOfTodayUTC = fromZonedTime(startOfTodayInTZ, timezone);
+    const startOfTomorrowUTC = fromZonedTime(startOfTomorrowInTZ, timezone);
+
     // Get all activity logs for this user
     const allLogs = await storage.getActivityLogs(userId, 1000);
-    
-    // Get today's date at midnight (12:00 AM)
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-    
-    // Get tomorrow's date at midnight (12:00 AM) for comparison
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    // Filter logs from today (between today 12:00 AM and tomorrow 12:00 AM)
+
+    // Filter logs from "today" in user's timezone (12:00 AM to 11:59:59.999 in their TZ)
     const todayLogs = allLogs.filter(log => {
-      const logDate = new Date(log.createdAt);
-      logDate.setHours(0, 0, 0, 0);
-      return logDate.getTime() >= today.getTime() && logDate.getTime() < tomorrow.getTime();
+      const t = new Date(log.createdAt).getTime();
+      return t >= startOfTodayUTC.getTime() && t < startOfTomorrowUTC.getTime();
     });
     
     // Count Perplexity API calls
@@ -317,13 +321,8 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       n8nMonthlyCount = n8nIngestionCount;
     }
     
-    // Calculate reset time (12:00 AM tomorrow / midnight)
-    const resetTime = new Date();
-    resetTime.setDate(resetTime.getDate() + 1);
-    resetTime.setHours(0, 0, 0, 0);
-    resetTime.setMinutes(0);
-    resetTime.setSeconds(0);
-    resetTime.setMilliseconds(0);
+    // Reset time = 12:00 AM tomorrow in user's timezone (already computed above)
+    const resetTime = startOfTomorrowUTC;
     
     // Calculate usage for each provider
     // Calculate usage percentages with precision (for display) and rounded (for badge)

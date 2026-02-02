@@ -444,6 +444,20 @@ export async function registerRoutes(
       const partialSchema = insertResumeSchema.partial();
       const validatedData = partialSchema.parse(req.body);
       
+      // Failsafe: at least one resume must remain active for matching
+      if (validatedData.activeForMatching === false) {
+        const current = await storage.getResume(id, userId);
+        if (current && current.activeForMatching !== false) {
+          const activeCount = await storage.countActiveResumesForMatching(userId);
+          if (activeCount <= 1) {
+            return res.status(400).json({
+              error: "At least one resume must remain active for matching",
+              message: "Turn on another resume for matching first, then you can turn this one off.",
+            });
+          }
+        }
+      }
+      
       const resume = await storage.updateResume(id, validatedData, userId);
       
       if (!resume) {
@@ -998,11 +1012,11 @@ export async function registerRoutes(
         }
       }
 
-      // Get all resumes for this user
-      const resumes = await storage.getResumes(userId);
+      // Get resumes active for matching
+      const resumes = await storage.getResumesForMatching(userId);
       
       if (resumes.length === 0) {
-        return res.status(400).json({ error: "No resumes found. Please upload at least one resume first." });
+        return res.status(400).json({ error: "No resumes active for matching. Please add at least one resume and ensure it's toggled on for matching." });
       }
 
       // Check if at least one AI API key is configured
@@ -1385,6 +1399,21 @@ export async function registerRoutes(
       
       if (!updated) {
         return res.status(404).json({ error: "Analysis not found" });
+      }
+
+      // When linking analysis to a job, sync the job's match fields from the analysis so the job
+      // appears as "scanned" in the feed (no rescan needed)
+      const jobIdToSync = validatedData.jobId !== undefined ? validatedData.jobId : updated.jobId;
+      if (jobIdToSync != null) {
+        const suggestions = updated.suggestions as Array<{ title?: string; description?: string; type?: string }> | null;
+        const matchReasoning = Array.isArray(suggestions)
+          ? suggestions.map((s: any) => (s?.title && s?.description ? `${s.title}: ${s.description}` : String(s))).slice(0, 20)
+          : undefined;
+        await storage.updateJob(jobIdToSync, {
+          matchScore: updated.matchScore,
+          matchedResumeId: updated.bestResumeId,
+          ...(matchReasoning && matchReasoning.length > 0 ? { matchReasoning } : {}),
+        }, userId);
       }
 
       res.json(updated);
@@ -2132,12 +2161,12 @@ export async function registerRoutes(
       const { matchAndUpdateJob } = await import("./matcher/job-matcher");
       const { activityLogger } = await import("./logger");
 
-      // Check prerequisites before matching
-      const resumes = await storage.getResumes(userId);
+      // Check prerequisites: at least one resume active for matching
+      const resumes = await storage.getResumesForMatching(userId);
       if (resumes.length === 0) {
         return res.status(400).json({ 
-          error: "No resumes found",
-          message: "Please upload at least one resume before matching jobs."
+          error: "No resumes active for matching",
+          message: "Please add at least one resume and ensure it's toggled on for matching."
         });
       }
 

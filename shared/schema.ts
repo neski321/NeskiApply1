@@ -49,6 +49,7 @@ export const resumes = pgTable("resumes", {
   experience: text("experience").notNull(),
   education: text("education"),
   rawContent: text("raw_content").notNull(),
+  activeForMatching: boolean("active_for_matching").default(true).notNull(), // If false, excluded from job matching
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

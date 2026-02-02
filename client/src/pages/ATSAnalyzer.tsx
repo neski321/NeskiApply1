@@ -46,7 +46,8 @@ export default function ATSAnalyzer() {
   const [analysisResult, setAnalysisResult] = useState<ATSAnalysis | null>(null);
   const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(0);
   
-  // Save job dialog state
+  // Save job: first prompt "Do you want to save?", then form dialog
+  const [showSaveJobPrompt, setShowSaveJobPrompt] = useState(false);
   const [showSaveJobDialog, setShowSaveJobDialog] = useState(false);
   const [jobLocation, setJobLocation] = useState("");
   const [jobSalary, setJobSalary] = useState("");
@@ -218,8 +219,8 @@ export default function ATSAnalyzer() {
             await queryClient.refetchQueries({ queryKey: ["atsAnalyses", data.jobId] });
           }, 500);
         } else {
-          // If no jobId, show dialog to save job
-          setShowSaveJobDialog(true);
+          // If no jobId, ask first if they want to save before showing the form
+          setShowSaveJobPrompt(true);
         }
       toast({
         title: "Analysis Complete",
@@ -809,7 +810,37 @@ export default function ATSAnalyzer() {
         </div>
       </div>
 
-      {/* Save Job Dialog */}
+      {/* Prompt: "Do you want to save this job?" (before showing the form) */}
+      <AlertDialog open={showSaveJobPrompt} onOpenChange={setShowSaveJobPrompt}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Save className="h-5 w-5 text-primary" />
+              Save this job?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Would you like to save this job to your database? You can add it to your job list and link this analysis to it so you don&apos;t need to rescan. If you choose yes, you&apos;ll enter the job details next.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowSaveJobPrompt(false)}>
+              No thanks
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowSaveJobPrompt(false);
+                setShowSaveJobDialog(true);
+              }}
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              Yes, save job
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save Job Dialog (form to enter job details) */}
       <Dialog open={showSaveJobDialog} onOpenChange={setShowSaveJobDialog}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
