@@ -58,6 +58,13 @@ const modelsToTest = [
   // OpenAI models
   "openai/gpt-oss-120b:free",
   "openai/gpt-oss-20b:free",
+  
+  // NEW models (Feb 2026 - from OpenRouter free models collection)
+  "arcee-ai/trinity-large-preview:free",
+  "arcee-ai/trinity-mini:free",
+  "stepfun/step-3.5-flash:free",
+  "upstage/solar-pro-3:free",
+  "openrouter/aurora-alpha",
 ];
 
 interface TestResult {

@@ -285,7 +285,7 @@ export async function callAIWithFallback(
     } else if (provider === "openrouter") {
       try {
         const modelSetting = await storage.getSetting("openrouter_model", userId);
-        const selectedModel = modelSetting?.value || "google/gemini-2.0-flash-exp:free";
+        const selectedModel = modelSetting?.value || "mistralai/mistral-small-3.1-24b-instruct:free";
         const result = await tryOpenRouter(messages, model, userId);
         if (result) {
           try {
@@ -468,32 +468,36 @@ async function tryPerplexity(
 }
 
 /**
- * List of all available OpenRouter free models
- * Excludes known broken models
+ * List of verified working OpenRouter free models (tested Feb 2026)
+ * Order: fastest/reliable first for fallback chain
  */
 const AVAILABLE_OPENROUTER_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
+  "mistralai/mistral-small-3.1-24b-instruct:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "arcee-ai/trinity-large-preview:free", // NEW: 400B MoE, 128K context, creative/agentic
+  "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-4b-it:free",
   "google/gemma-3n-e2b-it:free",
-  "mistralai/mistral-7b-instruct:free",
-  "mistralai/devstral-2512:free",
-  "mistralai/mistral-small-3.1-24b-instruct:free",
-  "xiaomi/mimo-v2-flash:free",
-  "tngtech/deepseek-r1t-chimera:free",
-  "qwen/qwen3-coder:free",
-  "qwen/qwen-2.5-vl-7b-instruct:free",
 ];
 
 /**
- * Known broken models that should be excluded from the list
+ * Known broken/unavailable models (404, rate-limited, or invalid)
  */
 const BROKEN_MODELS = [
-  "meta-llama/llama-3.2-3b-instruct:free",
-  "meta-llama/llama-3.2-1b-instruct:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "meta-llama/llama-3.1-70b-instruct:free",
+  "google/gemini-2.0-flash-exp:free",
+  "google/gemini-2.5-flash-preview:free",
+  "mistralai/mistral-7b-instruct:free",
+  "mistralai/devstral-2512:free",
+  "mistralai/mistral-nemo:free",
+  "xiaomi/mimo-v2-flash:free",
+  "tngtech/deepseek-r1t-chimera:free",
+  "tngtech/deepseek-r1t2-chimera:free",
+  "qwen/qwen3-coder:free",
+  "qwen/qwen-2.5-vl-7b-instruct:free",
+  "qwen/qwen3-4b:free",
+  "meta-llama/llama-3.1-405b-instruct:free",
   "meta-llama/llama-3.1-8b-instruct:free",
-  "qwen/qwen-2-7b-instruct:free",
+  "deepseek/deepseek-r1-0528:free",
   "deepseek/deepseek-r1:free",
 ];
 
@@ -503,12 +507,12 @@ const BROKEN_MODELS = [
  */
 async function tryOpenRouter(
   messages: AIChatMessage[],
-  model: string = "google/gemini-2.0-flash-exp:free", // Default to free model
+  model: string = "mistralai/mistral-small-3.1-24b-instruct:free", // Default to verified working model
   userId: string
 ): Promise<string | null> {
   // Get user's preferred OpenRouter model or use default (declare outside try for error handling)
   const modelSetting = await storage.getSetting("openrouter_model", userId);
-  let selectedModel = modelSetting?.value || "google/gemini-2.0-flash-exp:free"; // Default to free model
+  let selectedModel = modelSetting?.value || "mistralai/mistral-small-3.1-24b-instruct:free"; // Default to verified working model
   
   // Filter out broken models and get list of models to try
   const availableModels = AVAILABLE_OPENROUTER_MODELS.filter(m => !BROKEN_MODELS.includes(m));

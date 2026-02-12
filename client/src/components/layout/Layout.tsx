@@ -92,6 +92,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
       });
     }
     
+    // Add Apify (daily limit: 31 jobs)
+    if (apiUsage.providers.apify) {
+      providers.push({
+        key: "apify",
+        name: "Apify",
+        usage: {
+          dailyCount: apiUsage.providers.apify.dailyCount,
+          dailyLimit: apiUsage.providers.apify.dailyLimit,
+          usagePercentage: apiUsage.providers.apify.usagePercentage,
+          resetTime: apiUsage.resetTime,
+        },
+      });
+    }
+    
     // Add JSearch (uses monthly limits, not daily)
     if (apiUsage.providers.jsearch) {
       const jsearch = apiUsage.providers.jsearch as any; // JSearchUsage has different structure

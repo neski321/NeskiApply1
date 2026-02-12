@@ -3,6 +3,7 @@ import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { SkillGapAnalysisModal } from "@/components/SkillGapAnalysisModal";
 import { UnscannedJobsNotification } from "@/components/UnscannedJobsNotification";
+import { UntitledJobsNotification } from "@/components/UntitledJobsNotification";
 import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Filter, RefreshCcw, Search, TrendingUp, Activity, CheckCircle, Clock, XCircle } from "lucide-react";
@@ -22,6 +23,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -31,6 +42,7 @@ export default function Dashboard() {
   const [rejectedFilter, setRejectedFilter] = useState<boolean>(false); // Filter by rejected status
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [showSkillGapModal, setShowSkillGapModal] = useState(false);
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false);
   
   // Fetch settings to get high priority match threshold
   // Refetch on mount to ensure we get the latest settings
@@ -101,15 +113,18 @@ export default function Dashboard() {
 
   // Sync jobs mutation
   const syncMutation = useMutation({
-    mutationFn: syncJobs,
+    mutationFn: (options?: { skipApifyLimit?: boolean }) => syncJobs(options),
     onSuccess: (data) => {
+      setShowSyncConfirm(false);
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       
       toast({
         title: "Sync Started",
-        description: `Scraping jobs for ${data.jobTitles} titles in ${data.locations} locations. Results will appear shortly.`,
+        description: data?.skipApifyLimit
+          ? `Scraping jobs for ${data.jobTitles} titles. Apify 31/day limit bypassed for this manual run. Results will appear shortly.`
+          : `Scraping jobs for ${data.jobTitles} titles. Results will appear shortly.`,
         variant: "default",
         className: "border-emerald-500/50 text-emerald-500",
       });
@@ -181,7 +196,11 @@ export default function Dashboard() {
   const chartData = generateChartData();
 
   const handleSync = () => {
-    syncMutation.mutate();
+    setShowSyncConfirm(true);
+  };
+
+  const handleSyncConfirm = () => {
+    syncMutation.mutate({ skipApifyLimit: true });
   };
 
   return (
@@ -192,6 +211,9 @@ export default function Dashboard() {
         
         {/* Invalid API Key Notification */}
         <InvalidAPIKeyNotification />
+        
+        {/* Untitled Jobs Notification */}
+        <UntitledJobsNotification onFilterUntitled={() => setLocation("/jobs?untitled=1")} />
         
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -218,6 +240,22 @@ export default function Dashboard() {
               <span className="hidden sm:inline">{syncMutation.isPending ? "Syncing..." : "Sync Now"}</span>
               <span className="sm:hidden">{syncMutation.isPending ? "Sync..." : "Sync"}</span>
              </Button>
+            <AlertDialog open={showSyncConfirm} onOpenChange={setShowSyncConfirm}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sync Jobs</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This manual run will bypass the Apify 31 jobs/day limit. Your Apify usage may increase. Continue?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleSyncConfirm} disabled={syncMutation.isPending}>
+                    {syncMutation.isPending ? "Syncing..." : "Continue"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
 
@@ -381,7 +419,8 @@ export default function Dashboard() {
           <JobDetailModal 
             job={selectedJob} 
             open={!!selectedJob} 
-            onOpenChange={(open) => !open && setSelectedJob(null)} 
+            onOpenChange={(open) => !open && setSelectedJob(null)}
+            onJobUpdate={(updatedJob) => setSelectedJob(updatedJob)}
           />
           
           <SkillGapAnalysisModal

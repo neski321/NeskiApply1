@@ -16,6 +16,7 @@ const JSEARCH_DAILY_LIMIT = 10; // User's limit: 10 jobs per day
 const JSEARCH_MONTHLY_LIMIT = 200; // Basic plan: 200 requests/month (hard limit)
 const JSEARCH_HOURLY_LIMIT = 1000; // Rate limit: 1000 requests/hour
 const N8N_MONTHLY_LIMIT = 1000;
+const APIFY_DAILY_LIMIT = 31; // Hard limit: max jobs from Apify API per day
 
 interface ProviderUsage {
   dailyCount: number;
@@ -48,6 +49,7 @@ interface APIUsage {
     gemini: ProviderUsage;
     openrouter: ProviderUsage;
     jsearch: ProviderUsage;
+    apify: ProviderUsage; // Daily limit: 31 jobs
     n8n: {
       monthlyCount: number;
       monthlyLimit: number;
@@ -110,6 +112,23 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
                (log.metadata.apiCall && log.message?.toLowerCase().includes("openrouter"));
       }
       return false;
+    });
+    
+    // Count Apify API usage (jobs requested today - daily limit 31)
+    const apifyLogs = todayLogs.filter(log => {
+      if (log.metadata && typeof log.metadata === 'object') {
+        return log.metadata.provider === "apify" || 
+               (log.metadata.apiCall && log.message?.toLowerCase().includes("apify"));
+      }
+      return false;
+    });
+    let apifyDailyCount = 0;
+    apifyLogs.forEach(log => {
+      if (log.metadata && typeof log.metadata === 'object' && typeof log.metadata.jobsRequested === 'number') {
+        apifyDailyCount += log.metadata.jobsRequested;
+      } else {
+        apifyDailyCount += 1; // Fallback for legacy logs
+      }
     });
     
     // Count JSearch API calls (monthly tracking, not daily)
@@ -330,6 +349,7 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
     const geminiPercentage = Math.min(100, (geminiLogs.length / GEMINI_DAILY_LIMIT) * 100);
     const openrouterPercentage = Math.min(100, (openrouterLogs.length / OPENROUTER_DAILY_LIMIT) * 100);
     const jsearchPercentage = Math.min(100, (jsearchMonthlyCount / JSEARCH_MONTHLY_LIMIT) * 100);
+    const apifyPercentage = Math.min(100, (apifyDailyCount / APIFY_DAILY_LIMIT) * 100);
     const n8nPercentage = Math.min(100, (n8nMonthlyCount / N8N_MONTHLY_LIMIT) * 100);
     
     const perplexityUsage: ProviderUsage = {
@@ -365,6 +385,14 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
       resetTime: jsearchResetTime, // Resets on 6th of next month
     };
     
+    const apifyUsage: ProviderUsage = {
+      dailyCount: apifyDailyCount,
+      dailyLimit: APIFY_DAILY_LIMIT,
+      usagePercentage: Math.round(apifyPercentage),
+      minuteCount: 0,
+      minuteLimit: 0,
+    };
+    
     const n8nUsage = {
       monthlyCount: n8nMonthlyCount,
       monthlyLimit: N8N_MONTHLY_LIMIT,
@@ -388,6 +416,7 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
         gemini: geminiUsage,
         openrouter: openrouterUsage,
         jsearch: jsearchUsage,
+        apify: apifyUsage,
         n8n: n8nUsage,
       },
     };
@@ -420,6 +449,13 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
           hourlyLimit: JSEARCH_HOURLY_LIMIT,
           resetTime: new Date(),
         },
+        apify: {
+          dailyCount: 0,
+          dailyLimit: APIFY_DAILY_LIMIT,
+          usagePercentage: 0,
+          minuteCount: 0,
+          minuteLimit: 0,
+        },
         n8n: {
           monthlyCount: 0,
           monthlyLimit: N8N_MONTHLY_LIMIT,
@@ -432,15 +468,23 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
 }
 
 /**
+ * Get Apify jobs requested today (for enforcing 31/day limit)
+ */
+export async function getApifyDailyUsage(userId: string): Promise<number> {
+  const usage = await getAPIUsage(userId);
+  return usage.providers.apify.dailyCount;
+}
+
+/**
  * Log an API call (call this whenever any API is used)
  * @param context - Description of the API call
- * @param provider - Provider name: "perplexity", "gemini", "jsearch", or "n8n"
+ * @param provider - Provider name: "perplexity", "gemini", "jsearch", "n8n", or "apify"
  * @param metadata - Additional metadata
  * @param userId - User ID
  */
 export async function logAPICall(
   context: string, 
-  provider: "perplexity" | "gemini" | "openrouter" | "jsearch" | "n8n",
+  provider: "perplexity" | "gemini" | "openrouter" | "jsearch" | "n8n" | "apify",
   metadata?: Record<string, any>, 
   userId?: string
 ): Promise<void> {

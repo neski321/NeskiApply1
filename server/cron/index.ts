@@ -12,8 +12,9 @@ const lastReminderSent: Map<string, string> = new Map(); // userId -> date strin
 
 /**
  * Execute daily job scraping for a specific user
+ * @param skipApifyLimit - When true, bypass Apify 31/day limit (for manual triggers)
  */
-export async function executeDailyScraping(userId: string): Promise<{
+export async function executeDailyScraping(userId: string, skipApifyLimit?: boolean): Promise<{
   success: boolean;
   message: string;
   results?: any[];
@@ -101,6 +102,7 @@ export async function executeDailyScraping(userId: string): Promise<{
       radius,
       excludeJobPublishers,
       userId,
+      skipApifyLimit,
     });
 
     const totalJobsFound = results.reduce((sum, r) => sum + r.jobsFound, 0);

@@ -2,9 +2,11 @@ import { Layout } from "@/components/layout/Layout";
 import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetailModal } from "@/components/jobs/JobDetailModal";
 import { ZeroScoreJobsNotification } from "@/components/ZeroScoreJobsNotification";
+import { UntitledJobsNotification } from "@/components/UntitledJobsNotification";
 import { InvalidAPIKeyNotification } from "@/components/InvalidAPIKeyNotification";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, SlidersHorizontal, Filter, ArrowUpDown, Briefcase } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getJobs } from "@/lib/api";
@@ -33,6 +35,7 @@ export default function JobFeed() {
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState<string>("recently-scanned"); // "recently-scanned", "match-score", "oldest", "company", "recently-applied"
   const [titleFilter, setTitleFilter] = useState(""); // Filter by job title/role only (e.g. senior, jr, web developer) - separate from general search
+  const [untitledOnly, setUntitledOnly] = useState(false); // Show only jobs with "Untitled Job" title
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
   // Quick title presets: value is what we match in the title (we also match common abbreviations)
@@ -42,6 +45,14 @@ export default function JobFeed() {
     { label: "Web Developer", value: "web developer", aliases: ["web dev"] },
     { label: "Lead", value: "lead", aliases: [] },
   ] as const;
+
+  // Read untitled filter from URL on mount (e.g. /jobs?untitled=1)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("untitled") === "1") {
+      setUntitledOnly(true);
+    }
+  }, []);
 
   // Auto-switch to "recently-applied" sort when applied filter is selected
   useEffect(() => {
@@ -89,9 +100,14 @@ export default function JobFeed() {
     return title.includes(raw);
   };
 
-  // Client-side search, source filtering, and title-only filtering
+  // Client-side search, source filtering, title-only filtering, and untitled filter
   const filteredJobs = useMemo(() => {
     let filtered = allJobs;
+
+    // Filter by untitled jobs only
+    if (untitledOnly) {
+      filtered = filtered.filter((job) => job.title === "Untitled Job");
+    }
 
     // Filter by source
     if (sourceFilter !== "all") {
@@ -130,7 +146,7 @@ export default function JobFeed() {
     }
 
     return filtered;
-  }, [allJobs, searchQuery, sourceFilter, titleFilter]);
+  }, [allJobs, searchQuery, sourceFilter, titleFilter, untitledOnly]);
 
   // Sort jobs based on selected sort option
   const sortedJobs = useMemo(() => {
@@ -194,10 +210,11 @@ export default function JobFeed() {
     setAppliedFilter("all");
     setSearchQuery("");
     setTitleFilter("");
+    setUntitledOnly(false);
     setSortBy("recently-scanned");
   };
 
-  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "" || titleFilter.trim() !== "";
+  const hasActiveFilters = statusFilter !== "all" || minMatchScore !== undefined || sourceFilter !== "all" || appliedFilter !== "all" || searchQuery.trim() !== "" || titleFilter.trim() !== "" || untitledOnly;
 
   return (
     <Layout>
@@ -206,6 +223,7 @@ export default function JobFeed() {
           <h1 className="text-xl sm:text-2xl font-bold">Job Feed</h1>
           <InvalidAPIKeyNotification />
           <ZeroScoreJobsNotification />
+          <UntitledJobsNotification onFilterUntitled={() => setUntitledOnly(true)} />
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -239,7 +257,7 @@ export default function JobFeed() {
                   Filters
                   {hasActiveFilters && (
                     <span className="ml-1 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
-                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all", appliedFilter !== "all", titleFilter.trim() !== ""].filter(Boolean).length}
+                      {[statusFilter !== "all", minMatchScore !== undefined, sourceFilter !== "all", appliedFilter !== "all", untitledOnly, titleFilter.trim() !== ""].filter(Boolean).length}
                     </span>
                   )}
                 </Button>
@@ -308,6 +326,17 @@ export default function JobFeed() {
                         <SelectItem value="all">All Jobs</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="untitled-filter"
+                      checked={untitledOnly}
+                      onCheckedChange={(checked) => setUntitledOnly(checked === true)}
+                    />
+                    <label htmlFor="untitled-filter" className="text-sm font-medium leading-none cursor-pointer">
+                      Show only untitled jobs
+                    </label>
                   </div>
 
                   {hasActiveFilters && (
@@ -394,6 +423,11 @@ export default function JobFeed() {
                   {appliedFilter === "applied" ? "Applied" : "Not Applied"}
                 </span>
               )}
+              {untitledOnly && (
+                <span className="px-2 py-1 bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs rounded-md">
+                  Untitled only
+                </span>
+              )}
               {titleFilter.trim() && (
                 <span className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
                   Title: "{titleFilter.trim()}"
@@ -446,7 +480,8 @@ export default function JobFeed() {
       <JobDetailModal 
         job={selectedJob} 
         open={!!selectedJob} 
-        onOpenChange={(open) => !open && setSelectedJob(null)} 
+        onOpenChange={(open) => !open && setSelectedJob(null)}
+        onJobUpdate={(updatedJob) => setSelectedJob(updatedJob)}
       />
     </Layout>
   );

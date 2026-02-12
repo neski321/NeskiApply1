@@ -9,6 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
@@ -27,6 +37,7 @@ export default function Settings() {
     }
     return true;
   });
+  const [showCronConfirm, setShowCronConfirm] = useState(false);
   const [requiredSettingsStatus, setRequiredSettingsStatus] = useState<{
     configured: boolean;
     missing: string[];
@@ -61,7 +72,7 @@ export default function Settings() {
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
     openrouterApiKey: "",
-    openrouterModel: "google/gemini-2.0-flash-exp:free",
+    openrouterModel: "mistralai/mistral-small-3.1-24b-instruct:free",
     resumeOptimizationProvider: "perplexity",
     jsearchApiKey: "",
     jsearchRapidApiHost: "",
@@ -70,6 +81,21 @@ export default function Settings() {
     jsearchRadius: "",
     jsearchExcludeJobPublishers: "",
     discordWebhook: "",
+    // Apify LinkedIn Jobs Scraper (up to 3 positions, sum of limits <= 31/day)
+    apifyApiToken: "",
+    apifyPosition1: "",
+    apifyMaxItems1: "10",
+    apifyPosition2: "",
+    apifyMaxItems2: "10",
+    apifyPosition3: "",
+    apifyMaxItems3: "11",
+    apifyCountry: "US",
+    apifyLocation: "",
+    apifyParseCompanyDetails: false,
+    apifySaveOnlyUniqueItems: true,
+    apifyFollowApplyRedirects: false,
+    apifyUseCommonFilters: true,
+    apifySearchIntervalSeconds: "60",
   });
 
   // Store original form data to compare against
@@ -172,7 +198,7 @@ export default function Settings() {
         geminiApiKey: settingsMap.gemini_api_key || "",
         geminiModel: settingsMap.gemini_model || "gemini-2.5-flash",
         openrouterApiKey: settingsMap.openrouter_api_key || "",
-        openrouterModel: settingsMap.openrouter_model || "google/gemini-2.0-flash-exp:free",
+        openrouterModel: settingsMap.openrouter_model || "mistralai/mistral-small-3.1-24b-instruct:free",
         resumeOptimizationProvider: settingsMap.resume_optimization_provider || "gemini",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
         jsearchRapidApiHost: settingsMap.jsearch_rapidapi_host || "",
@@ -181,6 +207,20 @@ export default function Settings() {
         jsearchRadius: settingsMap.jsearch_radius || "",
         jsearchExcludeJobPublishers: settingsMap.jsearch_exclude_job_publishers || "",
         discordWebhook: settingsMap.discord_webhook || "",
+        apifyApiToken: settingsMap.apify_api_token || "",
+        apifyPosition1: settingsMap.apify_position_1 || (settingsMap.apify_position?.split(",")[0]?.trim() ?? "") || "",
+        apifyMaxItems1: settingsMap.apify_max_items_1 || "10",
+        apifyPosition2: settingsMap.apify_position_2 || (settingsMap.apify_position?.split(",")[1]?.trim() ?? "") || "",
+        apifyMaxItems2: settingsMap.apify_max_items_2 || "10",
+        apifyPosition3: settingsMap.apify_position_3 || (settingsMap.apify_position?.split(",")[2]?.trim() ?? "") || "",
+        apifyMaxItems3: settingsMap.apify_max_items_3 || "11",
+        apifyCountry: settingsMap.apify_country || "US",
+        apifyLocation: settingsMap.apify_location || "",
+        apifyParseCompanyDetails: settingsMap.apify_parse_company_details === "true",
+        apifySaveOnlyUniqueItems: settingsMap.apify_save_only_unique_items !== "false",
+        apifyFollowApplyRedirects: settingsMap.apify_follow_apply_redirects === "true",
+        apifyUseCommonFilters: settingsMap.apify_use_common_filters !== "false",
+        apifySearchIntervalSeconds: settingsMap.apify_search_interval_seconds || "60",
       };
       
       // Only update formData on initial load (when originalFormDataRef is null)
@@ -209,6 +249,12 @@ export default function Settings() {
       }
     }
   }, [settings]);
+
+  // Apify limits must sum to <= 31
+  const apifyLimitSumInvalid = useMemo(() => {
+    const sum = parseInt(formData.apifyMaxItems1 || "0", 10) + parseInt(formData.apifyMaxItems2 || "0", 10) + parseInt(formData.apifyMaxItems3 || "0", 10);
+    return sum > 31;
+  }, [formData.apifyMaxItems1, formData.apifyMaxItems2, formData.apifyMaxItems3]);
 
   // Check if form data has changed from original
   const hasChanges = useMemo(() => {
@@ -252,7 +298,21 @@ export default function Settings() {
       original.jsearchJobRequirements !== current.jsearchJobRequirements ||
       original.jsearchRadius !== current.jsearchRadius ||
       original.jsearchExcludeJobPublishers !== current.jsearchExcludeJobPublishers ||
-      original.discordWebhook !== current.discordWebhook
+      original.discordWebhook !== current.discordWebhook ||
+      original.apifyApiToken !== current.apifyApiToken ||
+      original.apifyPosition1 !== current.apifyPosition1 ||
+      original.apifyMaxItems1 !== current.apifyMaxItems1 ||
+      original.apifyPosition2 !== current.apifyPosition2 ||
+      original.apifyMaxItems2 !== current.apifyMaxItems2 ||
+      original.apifyPosition3 !== current.apifyPosition3 ||
+      original.apifyMaxItems3 !== current.apifyMaxItems3 ||
+      original.apifyCountry !== current.apifyCountry ||
+      original.apifyLocation !== current.apifyLocation ||
+      original.apifyParseCompanyDetails !== current.apifyParseCompanyDetails ||
+      original.apifySaveOnlyUniqueItems !== current.apifySaveOnlyUniqueItems ||
+      original.apifyFollowApplyRedirects !== current.apifyFollowApplyRedirects ||
+      original.apifyUseCommonFilters !== current.apifyUseCommonFilters ||
+      original.apifySearchIntervalSeconds !== current.apifySearchIntervalSeconds
     );
   }, [formData]);
 
@@ -300,13 +360,16 @@ export default function Settings() {
   });
 
   const cronMutation = useMutation({
-    mutationFn: triggerCronJob,
+    mutationFn: (options?: { skipApifyLimit?: boolean }) => triggerCronJob(options),
     onSuccess: (data) => {
+      setShowCronConfirm(false);
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       toast({
         title: "Cron Job Triggered",
-        description: data.message || "Daily scraping job has been started.",
+        description: data?.skipApifyLimit
+          ? "Daily scraping started. Apify 31/day limit bypassed for this manual run."
+          : (data.message || "Daily scraping job has been started."),
       });
     },
     onError: (error: Error) => {
@@ -382,6 +445,14 @@ export default function Settings() {
     if (saveMutation.isPending || isSavingRef.current) {
       return;
     }
+    if (apifyLimitSumInvalid) {
+      toast({
+        title: "Invalid Apify limits",
+        description: "Sum of position limits must be 31 or less.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     // Mark that we're saving to prevent race conditions
     isSavingRef.current = true;
@@ -424,6 +495,20 @@ export default function Settings() {
       jsearch_radius: formData.jsearchRadius,
       jsearch_exclude_job_publishers: formData.jsearchExcludeJobPublishers,
       discord_webhook: formData.discordWebhook,
+      apify_api_token: formData.apifyApiToken,
+      apify_position_1: formData.apifyPosition1,
+      apify_max_items_1: formData.apifyMaxItems1,
+      apify_position_2: formData.apifyPosition2,
+      apify_max_items_2: formData.apifyMaxItems2,
+      apify_position_3: formData.apifyPosition3,
+      apify_max_items_3: formData.apifyMaxItems3,
+      apify_country: formData.apifyCountry,
+      apify_location: formData.apifyLocation,
+      apify_parse_company_details: formData.apifyParseCompanyDetails.toString(),
+      apify_save_only_unique_items: formData.apifySaveOnlyUniqueItems.toString(),
+      apify_follow_apply_redirects: formData.apifyFollowApplyRedirects.toString(),
+      apify_use_common_filters: formData.apifyUseCommonFilters.toString(),
+      apify_search_interval_seconds: formData.apifySearchIntervalSeconds,
     };
 
     try {
@@ -475,17 +560,33 @@ export default function Settings() {
             <Button 
               variant="outline" 
               className="gap-2 text-sm sm:text-base" 
-              onClick={() => cronMutation.mutate()} 
+              onClick={() => setShowCronConfirm(true)} 
               disabled={cronMutation.isPending}
             >
               <Play className={`h-4 w-4 ${cronMutation.isPending ? "animate-pulse" : ""}`} />
               <span className="hidden sm:inline">{cronMutation.isPending ? "Running..." : "Run Cron Job Now"}</span>
               <span className="sm:hidden">{cronMutation.isPending ? "Running..." : "Run Cron"}</span>
             </Button>
+            <AlertDialog open={showCronConfirm} onOpenChange={setShowCronConfirm}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Run Cron Job</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This manual run will bypass the Apify 31 jobs/day limit. Your Apify usage may increase. Continue?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => cronMutation.mutate({ skipApifyLimit: true })} disabled={cronMutation.isPending}>
+                    {cronMutation.isPending ? "Running..." : "Continue"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button 
               className="gap-2 text-sm sm:text-base" 
               onClick={handleSave} 
-              disabled={saveMutation.isPending || !hasChanges}
+              disabled={saveMutation.isPending || !hasChanges || apifyLimitSumInvalid}
             >
               {saveMutation.isPending ? (
                 <>
@@ -690,6 +791,165 @@ export default function Settings() {
               </CardContent>
             </Card>
 
+            {/* Apify LinkedIn Jobs Scraper Parameters */}
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Apify LinkedIn Jobs Scraper</CardTitle>
+                <CardDescription>
+                  Search parameters for Apify LinkedIn Jobs Scraper. Configure your API token in the API Keys tab. Up to 3 job titles, each with its own limit. Total limit per day is 31 (hard cap). Sum of limits must be ≤ 31.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-4">
+                  {[
+                    { pos: "apifyPosition1" as const, max: "apifyMaxItems1" as const, label: "1" },
+                    { pos: "apifyPosition2" as const, max: "apifyMaxItems2" as const, label: "2" },
+                    { pos: "apifyPosition3" as const, max: "apifyMaxItems3" as const, label: "3" },
+                  ].map(({ pos, max, label }) => (
+                    <div key={label} className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                      <div className="flex-1 space-y-1 min-w-0">
+                        <Label className="text-sm">Position {label}</Label>
+                        <Input
+                          value={formData[pos]}
+                          onChange={(e) => setFormData({ ...formData, [pos]: e.target.value })}
+                          placeholder="web developer"
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <Label className="text-sm">Limit</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="31"
+                          value={formData[max]}
+                          onChange={(e) => setFormData({ ...formData, [max]: e.target.value })}
+                          placeholder="10"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {(() => {
+                  const sum = parseInt(formData.apifyMaxItems1 || "0", 10) + parseInt(formData.apifyMaxItems2 || "0", 10) + parseInt(formData.apifyMaxItems3 || "0", 10);
+                  return sum > 31 ? (
+                    <p className="text-sm text-destructive font-medium">
+                      Sum of limits ({sum}) exceeds 31. Please reduce to 31 or less.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Total: {sum}/31 jobs per day</p>
+                  );
+                })()}
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Interval Between Searches (seconds)
+                  </Label>
+                  <Input 
+                    type="number"
+                    min="0"
+                    max="86400"
+                    value={formData.apifySearchIntervalSeconds}
+                    onChange={(e) => setFormData({ ...formData, apifySearchIntervalSeconds: e.target.value })}
+                    placeholder="60"
+                    className="w-32"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wait time between each position search (seconds). Applies between 2nd, 3rd, etc. positions only. Max 24h (86400). Default: 60. Use 0 for no delay.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Country
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: country</span>
+                    </Label>
+                    <Input 
+                      value={formData.apifyCountry}
+                      onChange={(e) => setFormData({ ...formData, apifyCountry: e.target.value.toUpperCase() })}
+                      placeholder="US"
+                      className="font-mono"
+                      maxLength={2}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      2-letter ISO country code (e.g., US, CA, GB). Uses Job Search country if left empty.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      Location
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: location (optional)</span>
+                    </Label>
+                    <Input 
+                      value={formData.apifyLocation}
+                      onChange={(e) => setFormData({ ...formData, apifyLocation: e.target.value })}
+                      placeholder="San Francisco"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="flex items-center gap-2">
+                      Parse Company Details
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: parseCompanyDetails</span>
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Scrape additional company information (slower)
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.apifyParseCompanyDetails}
+                    onCheckedChange={(checked) => setFormData({ ...formData, apifyParseCompanyDetails: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="flex items-center gap-2">
+                      Save Only Unique Items
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: saveOnlyUniqueItems</span>
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Avoid duplicate job listings
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.apifySaveOnlyUniqueItems}
+                    onCheckedChange={(checked) => setFormData({ ...formData, apifySaveOnlyUniqueItems: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="flex items-center gap-2">
+                      Follow Apply Redirects
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">API: followApplyRedirects</span>
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Follow redirects when extracting apply URLs
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.apifyFollowApplyRedirects}
+                    onCheckedChange={(checked) => setFormData({ ...formData, apifyFollowApplyRedirects: checked })}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Use Common Filters</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Apply excluded keywords and other common filters to Apify results. Off = no filtering.
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={formData.apifyUseCommonFilters}
+                    onCheckedChange={(checked) => setFormData({ ...formData, apifyUseCommonFilters: checked })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Common Filters */}
             <Card className="bg-card/50 border-border/50">
@@ -989,18 +1249,12 @@ export default function Settings() {
                       onChange={(e) => setFormData({ ...formData, openrouterModel: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash - General Purpose (1M context) (Recommended)</option>
+                      <option value="mistralai/mistral-small-3.1-24b-instruct:free">Mistral Small 3.1 24B - Fast & Reliable (Recommended)</option>
+                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct - Lightweight (128K context)</option>
+                      <option value="arcee-ai/trinity-large-preview:free">Arcee Trinity Large - 400B, Creative & Agentic (128K context)</option>
+                      <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct - Multilingual (128K context)</option>
                       <option value="google/gemma-3-4b-it:free">Gemma 3 4B - Multimodal (128K context)</option>
                       <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B - Efficient (32K context)</option>
-                      <option value="mistralai/mistral-7b-instruct:free">Mistral 7B Instruct - Fast & Efficient (32K context)</option>
-                      <option value="mistralai/devstral-2512:free">Mistral Devstral 2 - Agentic Coding (256K context)</option>
-                      <option value="mistralai/mistral-small-3.1-24b-instruct:free">Mistral Small 3.1 24B - Multimodal (128K context)</option>
-                      <option value="xiaomi/mimo-v2-flash:free">Xiaomi MiMo V2 Flash - Reasoning & Coding (256K context)</option>
-                      <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct - Multilingual (128K context)</option>
-                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct - Lightweight (128K context)</option>
-                      <option value="tngtech/deepseek-r1t-chimera:free">TNG DeepSeek R1T Chimera - Reasoning (164K context)</option>
-                      <option value="qwen/qwen3-coder:free">Qwen3 Coder 480B - Code Generation (262K context)</option>
-                      <option value="qwen/qwen-2.5-vl-7b-instruct:free">Qwen 2.5 VL 7B - Multimodal (128K context)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -1086,6 +1340,37 @@ export default function Settings() {
                   />
                   <p className="text-xs text-muted-foreground">
                     RapidAPI host for JSearch API. Leave empty to use default: "jsearch.p.rapidapi.com". Only change if you're using a different RapidAPI endpoint.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Apify API Token */}
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle>Apify API</CardTitle>
+                <CardDescription>
+                  API token for Apify LinkedIn Jobs Scraper. Configure search parameters (positions, limits, country, location) in the Job Search tab.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Apify API Token
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Required for Apify</span>
+                  </Label>
+                  <Input 
+                    type="password" 
+                    placeholder="Enter your Apify API token" 
+                    value={formData.apifyApiToken}
+                    onChange={(e) => setFormData({ ...formData, apifyApiToken: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Get your API token from{" "}
+                    <a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                      Apify Console
+                    </a>
+                    . Leave empty to skip Apify scraping.
                   </p>
                 </div>
               </CardContent>

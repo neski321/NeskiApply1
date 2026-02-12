@@ -46,7 +46,9 @@ interface APIUsage {
   providers: {
     perplexity: ProviderUsage;
     gemini: ProviderUsage;
+    openrouter: ProviderUsage;
     jsearch: JSearchUsage;
+    apify: ProviderUsage;
     n8n: N8nUsage;
   };
 }
@@ -106,6 +108,16 @@ export function APIUsageModal({
       usage: apiUsage.providers.jsearch,
       type: "monthly" as const,
       description: "Job search API for scraping job listings (200 requests/month). Usage tracking will begin properly on the 6th of each month.",
+    },
+    {
+      name: "Apify",
+      icon: Search,
+      color: "text-indigo-500",
+      bgColor: "bg-indigo-500/10",
+      borderColor: "border-indigo-500/20",
+      usage: apiUsage.providers.apify,
+      type: "daily" as const,
+      description: "LinkedIn Jobs Scraper (31 jobs/day hard limit)",
     },
     {
       name: "n8n",
