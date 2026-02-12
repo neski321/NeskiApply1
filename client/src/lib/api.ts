@@ -371,9 +371,12 @@ export async function getStats(): Promise<DashboardStats> {
 
 // ============ JOB SCRAPING API ============
 
-export async function syncJobs(): Promise<{ message: string; jobTitles: number; locations: number }> {
+export async function syncJobs(options?: { skipApifyLimit?: boolean }): Promise<{ message: string; jobTitles: number; countryCode?: string; datePosted?: string; skipApifyLimit?: boolean }> {
   const response = await fetch("/api/jobs/sync", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(options ?? {}),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -382,9 +385,12 @@ export async function syncJobs(): Promise<{ message: string; jobTitles: number; 
   return response.json();
 }
 
-export async function triggerCronJob(): Promise<{ success: boolean; message: string; results?: any }> {
+export async function triggerCronJob(options?: { skipApifyLimit?: boolean }): Promise<{ success: boolean; message: string; results?: any; skipApifyLimit?: boolean }> {
   const response = await fetch("/api/jobs/trigger-cron", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(options ?? {}),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -434,6 +440,17 @@ export async function getUnscannedJobsCount(): Promise<{ count: number; jobs: Ar
     credentials: "include",
   });
   if (!response.ok) throw new Error("Failed to get unscanned jobs count");
+  return response.json();
+}
+
+export async function getUntitledJobsCount(): Promise<{ count: number }> {
+  const response = await fetch("/api/jobs/untitled-count", {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to get untitled jobs count" }));
+    throw new Error(error.error || "Failed to get untitled jobs count");
+  }
   return response.json();
 }
 
@@ -515,6 +532,7 @@ export interface APIUsage {
     gemini: ProviderUsage;
     openrouter: ProviderUsage;
     jsearch: JSearchUsage;
+    apify: ProviderUsage;
     n8n: N8nUsage;
   };
 }

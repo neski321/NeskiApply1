@@ -21,13 +21,16 @@ import {
   MessageSquare,
   AlertCircle,
   Sparkles,
-  Loader2
+  Loader2,
+  Pencil,
+  Check,
+  X
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { updateJob, deleteJob, optimizeResumeForJob, getOptimizedResumes, type OptimizeResumeResponse } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { OptimizedResumeModal } from "./OptimizedResumeModal";
 import { useOptimization } from "@/contexts/OptimizationContext";
@@ -42,14 +45,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 
 interface JobDetailModalProps {
   job: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onJobUpdate?: (job: Job) => void;
 }
 
-export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps) {
+export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDetailModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -60,6 +65,15 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
   const [optimizedResumesCount, setOptimizedResumesCount] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
   const [isTooInexperienced, setIsTooInexperienced] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState("");
+
+  useEffect(() => {
+    if (job) {
+      setEditTitleValue(job.title);
+      setIsEditingTitle(false);
+    }
+  }, [job?.id]);
 
   // Fetch optimized resume for this job to get its ID
   const { data: optimizedResumes = [] } = useQuery({
@@ -82,6 +96,7 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["untitledJobsCount"] });
       
       // Check if there are optimized resumes when marking as applied
       if (response.hasOptimizedResumes && response.optimizedResumesCount) {
@@ -200,6 +215,33 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
     }
   };
 
+  const handleSaveTitle = () => {
+    const trimmed = editTitleValue.trim();
+    if (!trimmed) {
+      toast({ title: "Error", description: "Title cannot be empty", variant: "destructive" });
+      return;
+    }
+    if (trimmed === job.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+    updateJobMutation.mutate(
+      { title: trimmed },
+      {
+        onSuccess: (updatedJob) => {
+          setIsEditingTitle(false);
+          onJobUpdate?.(updatedJob as Job);
+          toast({ title: "Title updated", description: `Job title updated to "${trimmed}"` });
+        },
+      }
+    );
+  };
+
+  const handleCancelEditTitle = () => {
+    setEditTitleValue(job.title);
+    setIsEditingTitle(false);
+  };
+
   const handleViewAnalysis = () => {
     onOpenChange(false);
     window.location.href = `/ats-analyzer?jobId=${job.id}`;
@@ -230,9 +272,54 @@ export function JobDetailModal({ job, open, onOpenChange }: JobDetailModalProps)
         <DialogHeader>
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <DialogTitle className="text-xl sm:text-2xl font-bold leading-tight pr-8">
-                {job.title}
-              </DialogTitle>
+              {isEditingTitle ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Job title</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={editTitleValue}
+                      onChange={(e) => setEditTitleValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveTitle();
+                        if (e.key === "Escape") handleCancelEditTitle();
+                      }}
+                      placeholder="Enter job title"
+                      className="text-xl sm:text-2xl font-bold"
+                      autoFocus
+                    />
+                    <Button
+                      size="icon"
+                      onClick={handleSaveTitle}
+                      disabled={updateJobMutation.isPending || !editTitleValue.trim()}
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="outline" onClick={handleCancelEditTitle}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 group/title">
+                  <DialogTitle className="text-xl sm:text-2xl font-bold leading-tight pr-8">
+                    {job.title}
+                  </DialogTitle>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 flex-shrink-0 opacity-70 hover:opacity-100"
+                    onClick={() => setIsEditingTitle(true)}
+                    title="Edit job title"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  {job.title === "Untitled Job" && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      Click pencil to edit
+                    </span>
+                  )}
+                </div>
+              )}
               <DialogDescription className="sr-only">
                 Job details for {job.title} at {job.company}
               </DialogDescription>
