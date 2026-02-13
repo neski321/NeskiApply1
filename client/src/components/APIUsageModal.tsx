@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Brain, Search, Zap, Database, TrendingUp } from "lucide-react";
+import { Brain, Search, Zap, TrendingUp } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -119,16 +119,7 @@ export function APIUsageModal({
       type: "daily" as const,
       description: "LinkedIn Jobs Scraper (31 jobs/day hard limit)",
     },
-    {
-      name: "n8n",
-      icon: Database,
-      color: "text-orange-500",
-      bgColor: "bg-orange-500/10",
-      borderColor: "border-orange-500/20",
-      usage: apiUsage.providers.n8n,
-      type: "monthly" as const,
-      description: "Automated job scraping workflow (1000 jobs/month)",
-    },
+    // n8n usage hidden for now
   ];
 
   return (
@@ -140,7 +131,7 @@ export function APIUsageModal({
             API Usage Breakdown
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Track your API usage across all providers. Daily limits reset at midnight, JSearch and n8n reset monthly on the 6th.
+            Track your API usage across all providers. Daily limits reset at midnight, JSearch resets monthly on the 6th.
           </DialogDescription>
         </DialogHeader>
 
@@ -368,11 +359,6 @@ export function APIUsageModal({
                       from various sources. Monthly limit of 200 requests (hard limit).
                       Rate limit: 1000 requests/hour. Resets on the 6th of each month.
                       Request counting: 1 page = 1 request, 2-10 pages = 2x, 10+ pages = 3x.
-                    </p>
-                    <p>
-                      • <strong>n8n:</strong> Automated workflow for job scraping.
-                      Monthly limit of 1000 jobs, resets on the 6th of each
-                      month.
                     </p>
                   </div>
                 </CardContent>

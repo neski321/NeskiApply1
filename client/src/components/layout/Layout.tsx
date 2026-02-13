@@ -123,23 +123,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       });
     }
     
-    // Add n8n (uses monthly limits, not daily)
-    if (apiUsage.providers.n8n) {
-      const n8n = apiUsage.providers.n8n as any; // N8nUsage has different structure
-      providers.push({
-        key: "n8n",
-        name: "n8n",
-        usage: {
-          dailyCount: n8n.monthlyCount || 0, // Use monthly as daily for display
-          dailyLimit: n8n.monthlyLimit || 1000, // Use monthly limit
-          usagePercentage: n8n.usagePercentage || 0,
-          resetTime: n8n.resetTime,
-          monthlyCount: n8n.monthlyCount,
-          monthlyLimit: n8n.monthlyLimit,
-        },
-      });
-    }
-    
+    // n8n usage hidden for now
+    // if (apiUsage.providers.n8n) { ... }
+
     return providers;
   }, [apiUsage]);
 
