@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import { activityLogger } from "./logger";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import { startOfDay, addDays } from "date-fns";
+import { formatInTimeZone, toDate } from "date-fns-tz";
+import { addDays } from "date-fns";
 
 /**
  * API Usage Limits
@@ -68,15 +68,15 @@ export async function getAPIUsage(userId: string): Promise<APIUsage> {
     const now = new Date();
 
     // User's timezone for "today" and reset at 12:00 AM in their timezone (from Settings > cron_timezone)
+    // Use toDate with string to avoid fromZonedTime bug (only works in UTC environments)
     const tzSetting = await storage.getSetting("cron_timezone", userId);
     const timezone = tzSetting?.value || "America/Toronto";
 
     // Start of today and tomorrow at 12:00 AM in user's timezone (as UTC moments)
-    const zonedNow = toZonedTime(now, timezone);
-    const startOfTodayInTZ = startOfDay(zonedNow);
-    const startOfTomorrowInTZ = addDays(startOfTodayInTZ, 1);
-    const startOfTodayUTC = fromZonedTime(startOfTodayInTZ, timezone);
-    const startOfTomorrowUTC = fromZonedTime(startOfTomorrowInTZ, timezone);
+    const todayStr = formatInTimeZone(now, timezone, "yyyy-MM-dd");
+    const tomorrowStr = formatInTimeZone(addDays(now, 1), timezone, "yyyy-MM-dd");
+    const startOfTodayUTC = toDate(`${todayStr}T00:00:00`, { timeZone: timezone });
+    const startOfTomorrowUTC = toDate(`${tomorrowStr}T00:00:00`, { timeZone: timezone });
 
     // Get all activity logs for this user
     const allLogs = await storage.getActivityLogs(userId, 1000);
