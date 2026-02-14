@@ -5,6 +5,8 @@ import path from "path";
 import passport from "passport";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
+import { formatInTimeZone, toDate } from "date-fns-tz";
+import { addDays } from "date-fns";
 import { insertResumeSchema, insertJobSchema, insertATSAnalysisSchema, insertUserSchema, jobs, type InsertJob, type Job } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
@@ -2256,12 +2258,19 @@ export async function registerRoutes(
       const rejectedJobs = jobs.filter(j => j.rejected === true).length; // Use new rejected boolean field
       const interviewJobs = jobs.filter(j => j.gotInterview === true).length; // Use new gotInterview boolean field
       
-      // Jobs from today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Jobs from today (same midnight as API usage: user's cron_timezone)
+      const tzSetting = await storage.getSetting("cron_timezone", userId);
+      const timezone = tzSetting?.value || "America/Toronto";
+      const now = new Date();
+      const todayStr = formatInTimeZone(now, timezone, "yyyy-MM-dd");
+      const yesterdayStr = formatInTimeZone(addDays(now, -1), timezone, "yyyy-MM-dd");
+      const tomorrowStr = formatInTimeZone(addDays(now, 1), timezone, "yyyy-MM-dd");
+      const startOfTodayUTC = toDate(`${todayStr}T00:00:00`, { timeZone: timezone });
+      const startOfYesterdayUTC = toDate(`${yesterdayStr}T00:00:00`, { timeZone: timezone });
+      const startOfTomorrowUTC = toDate(`${tomorrowStr}T00:00:00`, { timeZone: timezone });
       const todayJobs = jobs.filter(j => {
-        const jobDate = new Date(j.createdAt);
-        return jobDate >= today;
+        const t = new Date(j.createdAt).getTime();
+        return t >= startOfTodayUTC.getTime() && t < startOfTomorrowUTC.getTime();
       }).length;
       
       // High match jobs (>80%)
@@ -2277,12 +2286,10 @@ export async function registerRoutes(
         ? ((interviewJobs / appliedJobs) * 100).toFixed(1)
         : "0.0";
       
-      // Calculate change from yesterday (simplified - just show today's count)
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
+      // Calculate change from yesterday (same midnight as API usage)
       const yesterdayJobs = jobs.filter(j => {
-        const jobDate = new Date(j.createdAt);
-        return jobDate >= yesterday && jobDate < today;
+        const t = new Date(j.createdAt).getTime();
+        return t >= startOfYesterdayUTC.getTime() && t < startOfTodayUTC.getTime();
       }).length;
       
       // Calculate top missing skills from job tags

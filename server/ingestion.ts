@@ -4,6 +4,8 @@
  */
 import { storage } from "./storage";
 import { activityLogger } from "./logger";
+import { formatInTimeZone, toDate } from "date-fns-tz";
+import { addDays } from "date-fns";
 
 const MIN_DELAY_MS = 30000; // 30 seconds between requests (safe for Gemini's 2 req/min)
 const MAX_RETRIES = 3;
@@ -37,13 +39,14 @@ export async function runBackgroundMatching(
 
     const waitForDailyLimitReset = async () => {
       const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
-      const msUntilMidnight = tomorrow.getTime() - now.getTime();
+      const tzSetting = await storage.getSetting("cron_timezone", userId);
+      const timezone = tzSetting?.value || "America/Toronto";
+      const tomorrowStr = formatInTimeZone(addDays(now, 1), timezone, "yyyy-MM-dd");
+      const startOfTomorrowUTC = toDate(`${tomorrowStr}T00:00:00`, { timeZone: timezone });
+      const msUntilMidnight = startOfTomorrowUTC.getTime() - now.getTime();
       if (msUntilMidnight > 0) {
         const hoursUntilMidnight = Math.ceil(msUntilMidnight / (1000 * 60 * 60));
-        console.log(`[Ingest] Daily limit reached. Pausing until midnight reset (${hoursUntilMidnight} hours)...`);
+        console.log(`[Ingest] Daily limit reached. Pausing until midnight reset in ${timezone} (${hoursUntilMidnight} hours)...`);
         await new Promise((resolve) => setTimeout(resolve, msUntilMidnight + 60000));
         console.log(`[Ingest] Daily limit reset, resuming processing...`);
       }
