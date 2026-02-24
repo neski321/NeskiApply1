@@ -240,20 +240,31 @@ export async function generateInterviewPrep(
 
 const INTERVIEW_ANSWER_SYSTEM_PROMPT = `You are an elite interview answer writer.
 
-Goal:
-- Draft strong, realistic interview answers for the candidate.
-- Answers must be tailored to the provided Job Description and Candidate Profile (resume).
-- Use the candidate's voice in first person. Sound natural and human. No corporate fluff.
-- Be specific: reference relevant experience, tools, scope, and outcomes from the resume when possible.
-- If the resume doesn't contain a detail, make a reasonable assumption that still fits the profile and role.
+ANSWER METHOD — STAR (Situation, Task, Action, Result):
+Every behavioral or experience-based answer MUST follow the STAR framework naturally woven into the response (do NOT use the labels "Situation:", "Task:", etc. — just flow through them):
+  - Situation: Briefly set the scene — which company/team, what was happening, why it mattered.
+  - Task: What was the candidate responsible for or what needed to be solved.
+  - Action: What the candidate specifically did — tools used, decisions made, collaboration.
+  - Result: Concrete outcome — metrics, impact, what improved, what was learned.
+For purely technical or opinion questions (e.g. "what is your preferred stack?"), still show depth of understanding by explaining trade-offs and referencing real experience, but a strict STAR arc is not required.
+
+CRITICAL GROUNDING RULES (follow these strictly):
+1. Every answer MUST be grounded in the Candidate Profile (resume) provided below. Use real projects, job titles, companies, technologies, and outcomes that appear in the resume.
+2. Do NOT invent projects, metrics, or experiences that are not in the resume. If the resume says "improved performance by 30%", use that exact number.
+3. Before writing each answer, identify the most relevant experience in the resume, then build the STAR narrative around it. Cite specific roles, companies, or projects by name.
+4. Connect the answer to the Job Description: explain why the candidate's real experience makes them a fit for this specific role.
+5. If the resume has no relevant experience for a question, say so honestly and pivot to the closest transferable skill. Never fabricate.
+6. Show understanding: answers should demonstrate the candidate genuinely understands the WHY behind their actions, not just the WHAT. Explain reasoning, trade-offs considered, and lessons learned.
+7. Use the candidate's voice in first person. Sound natural and conversational — no corporate fluff, no AI phrases like "I possess" or "I am adept at."
+8. Keep answers 5-10 sentences — long enough to tell a complete STAR story, short enough to hold attention.
 
 Format rules:
-- Use plain text only. Do not use markdown or formatting symbols: no ##, no **, no __, no *, no #, no bullets like - or •.
-- Output each question as a numbered item (1), (2), ...
-- For each item use exactly:
+- Use plain text only. No markdown: no ##, no **, no __, no *, no #, no bullets like - or •.
+- Number each item: 1), 2), ...
+- For each item output exactly:
   Question: <original question>
-  Answer: <candidate answer>
-  Key points: <short, comma-separated> (keep it short)
+  Answer: <candidate answer following STAR, grounded in resume>
+  Key points: <short, comma-separated>
 `;
 
 function normalizeQuestions(input: string[] | string): string[] {
@@ -296,19 +307,22 @@ export async function answerInterviewQuestions(
 
   const extracted = await extractContextFromJobAndResume(jobDescription, candidateText, userId, providerOverride);
 
-  const userMessage = `role_type: ${extracted.role_type}
+  const userMessage = `=== CANDIDATE PROFILE (resume) ===
+${candidateText}
+
+=== JOB DESCRIPTION ===
+${jobDescription}
+
+=== CONTEXT ===
+role_type: ${extracted.role_type}
 seniority: ${extracted.seniority}
 company_type: ${extracted.company_type}
 stack_focus: ${extracted.stack_focus}
 
-Questions:
+=== QUESTIONS TO ANSWER ===
+Read the resume and job description above carefully. For each question below, craft an answer that references specific experience, projects, and outcomes from the resume. Connect the answer to why this candidate fits this job.
+
 ${questionList.map((q, i) => `${i + 1}) ${q}`).join("\n")}
-
-Job Description:
-${jobDescription}
-
-Candidate Profile (resume or bullet summary):
-${candidateText}
 `;
 
   const result = await callAIWithFallback(
@@ -338,7 +352,7 @@ Rules:
 - Keep the first-person voice and natural tone.
 - Replace heavy jargon with everyday language. When a technical term is essential, briefly explain it in parentheses.
 - Shorten long-winded explanations. Aim for clear, punchy sentences.
-- Keep the substance: the answer should still show competence, just in simpler words.
+- IMPORTANT: Keep all specific details from the original answers — real project names, company names, metrics, and outcomes must stay. Only simplify the language around them, do not remove or change factual content.
 - Preserve the original structure (numbered items, Question / Answer / Key points).
 - Use plain text only. No markdown symbols: no ##, no **, no __, no *, no #, no bullets like - or •.
 `;
