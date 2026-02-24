@@ -529,7 +529,7 @@ export async function registerRoutes(
         try {
           await mkdir(uploadDir, { recursive: true });
         } catch (error) {
-          return cb(new Error(`Failed to create upload directory: ${uploadDir}`));
+          return cb(new Error(`Failed to create upload directory: ${uploadDir}`), uploadDir);
         }
       }
       cb(null, uploadDir);
@@ -542,24 +542,29 @@ export async function registerRoutes(
   });
 
   // Security: Validate file content by checking magic numbers (file signatures)
-  // Note: PDF support removed - only DOC/DOCX/TXT are supported
   const validateFileContent = async (filePath: string, expectedExt: string): Promise<boolean> => {
     try {
       const buffer = await readFile(filePath);
       const fileSignature = buffer.slice(0, 8); // Read first 8 bytes
-      
+
+      // PDF magic number: %PDF (0x25 0x50 0x44 0x46)
+      if (expectedExt === ".pdf") {
+        const pdfSignature = Buffer.from("%PDF");
+        return fileSignature.slice(0, 4).equals(pdfSignature);
+      }
+
       // DOCX magic number: PK (ZIP format) - DOCX is a ZIP file
       if (expectedExt === ".docx") {
         const zipSignature = Buffer.from("PK");
         return fileSignature.slice(0, 2).equals(zipSignature);
       }
-      
+
       // DOC magic number: D0 CF 11 E0 A1 B1 1A E1 (OLE2 format)
       if (expectedExt === ".doc") {
         const docSignature = Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
         return fileSignature.equals(docSignature);
       }
-      
+
       // TXT files - no specific magic number, accept any text-like content
       if (expectedExt === ".txt") {
         // Check if file contains mostly printable ASCII/UTF-8 characters
@@ -588,7 +593,7 @@ export async function registerRoutes(
       fileSize: maxFileSize,
     },
     fileFilter: (req, file, cb) => {
-      const allowedExts = [".docx", ".doc", ".txt"];
+      const allowedExts = [".pdf", ".docx", ".doc", ".txt"];
       const ext = path.extname(file.originalname).toLowerCase();
       if (allowedExts.includes(ext)) {
         cb(null, true);
@@ -660,6 +665,7 @@ export async function registerRoutes(
 
       // Create resume in database
       const resume = await storage.createResume({
+        userId,
         name: name || parsed.fileName,
         fileName: req.file.originalname,
         skills: parsed.skills,
@@ -705,13 +711,198 @@ export async function registerRoutes(
     }
   });
 
+  // ============ INTERVIEW RESUMES API (saved when starting interview prep) ============
+
+  app.get("/api/interview-resumes", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const list = await storage.getInterviewResumes(userId);
+      res.json(list);
+    } catch (error) {
+      console.error("Error fetching interview resumes:", error);
+      res.status(500).json({ error: "Failed to fetch interview resumes" });
+    }
+  });
+
+  app.post("/api/interview-resumes/upload", requireAuth, (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({
+              error: `File too large. Maximum size is ${Math.round(maxFileSize / 1024 / 1024)}MB`,
+            });
+          }
+          return res.status(400).json({ error: err.message });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  }, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isValidContent = await validateFileContent(req.file.path, ext);
+      if (!isValidContent) {
+        await unlink(req.file.path);
+        return res.status(400).json({
+          error: "File content does not match file type. The file may be corrupted or malicious.",
+        });
+      }
+      const { name } = req.body;
+      if (!name) {
+        await unlink(req.file.path);
+        return res.status(400).json({ error: "Resume name is required" });
+      }
+      if (!existsSync(req.file.path)) {
+        await unlink(req.file.path).catch(() => {});
+        return res.status(500).json({ error: "Uploaded file not found on server" });
+      }
+      const parsed = await parseResume(req.file.path, req.file.originalname);
+      const resume = await storage.createInterviewResume({
+        userId,
+        name: name || parsed.fileName,
+        fileName: req.file.originalname,
+        skills: parsed.skills,
+        technicalSkillsSection: parsed.technicalSkillsSection || null,
+        experience: parsed.experience,
+        education: parsed.education || "",
+        rawContent: parsed.rawContent,
+      }, userId);
+      const { activityLogger } = await import("./logger");
+      await activityLogger.success(`Interview resume "${resume.name}" uploaded`, { interviewResumeId: resume.id, fileName: req.file.originalname }, userId);
+      res.status(201).json(resume);
+    } catch (error) {
+      if (req.file?.path) {
+        try {
+          await unlink(req.file.path);
+        } catch (e) {
+          console.error("Error cleaning up file:", e);
+        }
+      }
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      console.error("Error uploading interview resume:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "Failed to upload and parse resume",
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+  });
+
+  // ============ INTERVIEW PREPS API (generated per job + resume + mode) ============
+
+  app.get("/api/interview-preps", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const jobId = req.query.jobId as string;
+      if (!jobId) {
+        return res.status(400).json({ error: "jobId is required" });
+      }
+      const list = await storage.getInterviewPrepsByJob(userId, parseInt(jobId, 10));
+      res.json(list);
+    } catch (error) {
+      console.error("Error fetching interview preps:", error);
+      res.status(500).json({ error: "Failed to fetch interview preps" });
+    }
+  });
+
+  app.post("/api/interview-preps/generate", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const { jobId, resumeId, source, mode } = req.body;
+      if (jobId == null || resumeId == null || !source || !mode) {
+        return res.status(400).json({
+          error: "jobId, resumeId, source (resume | interview_resume), and mode (screening | technical_deep_dive | pressure_test) are required",
+        });
+      }
+      const validModes = ["screening", "technical_deep_dive", "pressure_test"];
+      if (!validModes.includes(mode)) {
+        return res.status(400).json({ error: "Invalid mode. Use screening, technical_deep_dive, or pressure_test." });
+      }
+      if (source !== "resume" && source !== "interview_resume") {
+        return res.status(400).json({ error: "source must be resume or interview_resume" });
+      }
+      const { generateInterviewPrep } = await import("./interview-prep");
+      const result = await generateInterviewPrep(userId, Number(jobId), Number(resumeId), source, mode);
+      res.status(201).json(result);
+    } catch (error) {
+      console.error("Error generating interview prep:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Failed to generate interview prep",
+        });
+      }
+    }
+  });
+
+  app.post("/api/interview-preps/answer", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const { jobId, resumeId, source, questions, questionsText } = req.body;
+
+      if (jobId == null || resumeId == null || !source || (!questions && !questionsText)) {
+        return res.status(400).json({
+          error: "jobId, resumeId, source (resume | interview_resume), and questions (array) or questionsText (string) are required",
+        });
+      }
+      if (source !== "resume" && source !== "interview_resume") {
+        return res.status(400).json({ error: "source must be resume or interview_resume" });
+      }
+
+      const { answerInterviewQuestions } = await import("./interview-prep");
+      const result = await answerInterviewQuestions(
+        userId,
+        Number(jobId),
+        Number(resumeId),
+        source,
+        (questionsText as string) ?? (questions as string[])
+      );
+      res.status(200).json(result);
+    } catch (error) {
+      console.error("Error answering interview questions:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Failed to answer interview questions",
+        });
+      }
+    }
+  });
+
+  app.post("/api/interview-preps/simplify", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const { answersContent } = req.body;
+      if (!answersContent || typeof answersContent !== "string") {
+        return res.status(400).json({ error: "answersContent (string) is required" });
+      }
+      const { simplifyInterviewAnswers } = await import("./interview-prep");
+      const result = await simplifyInterviewAnswers(userId, answersContent);
+      res.status(200).json(result);
+    } catch (error) {
+      console.error("Error simplifying interview answers:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Failed to simplify answers",
+        });
+      }
+    }
+  });
+
   // ============ JOBS API ============
   
   // Get all jobs (with optional filters)
   app.get("/api/jobs", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
-      const { status, minMatchScore, isApplied, rejected } = req.query;
+      const { status, minMatchScore, isApplied, rejected, gotInterview } = req.query;
       
       const filters: any = {};
       if (status) filters.status = status as string;
@@ -722,23 +913,52 @@ export async function registerRoutes(
       if (rejected !== undefined) {
         filters.rejected = rejected === "true";
       }
+      if (gotInterview !== undefined) {
+        filters.gotInterview = gotInterview === "true";
+      }
       
       const jobs = await storage.getJobs(userId, filters);
-      
-      // Add optimized resume indicator for each job
-      const jobsWithOptimizedInfo = await Promise.all(jobs.map(async (job) => {
-        const optimizedResumes = await storage.getOptimizedResumes(userId, job.id);
+
+      // Batch fetch optimized resume counts (avoids N+1 queries)
+      const jobIds = jobs.map((j) => j.id);
+      const optimizedCounts = await storage.getOptimizedResumeCountsByJobIds(userId, jobIds);
+      const jobsWithOptimizedInfo = jobs.map((job) => {
+        const count = optimizedCounts.get(job.id) ?? 0;
         return {
           ...job,
-          hasOptimizedResume: optimizedResumes.length > 0,
-          optimizedResumeCount: optimizedResumes.length
+          hasOptimizedResume: count > 0,
+          optimizedResumeCount: count,
         };
-      }));
+      });
       
       res.json(jobsWithOptimizedInfo);
     } catch (error) {
       console.error("Error fetching jobs:", error);
       res.status(500).json({ error: "Failed to fetch jobs" });
+    }
+  });
+
+  // Get jobs with gotInterview=true (for Interview Prep page) - MUST be before /api/jobs/:id
+  app.get("/api/jobs/interview", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const allJobs = await storage.getInterviewJobs(userId);
+
+      const jobIds = allJobs.map((j) => j.id);
+      const optimizedCounts = await storage.getOptimizedResumeCountsByJobIds(userId, jobIds);
+      const jobsWithOptimizedInfo = allJobs.map((job) => {
+        const count = optimizedCounts.get(job.id) ?? 0;
+        return {
+          ...job,
+          hasOptimizedResume: count > 0,
+          optimizedResumeCount: count,
+        };
+      });
+
+      res.json(jobsWithOptimizedInfo);
+    } catch (error) {
+      console.error("Error fetching interview jobs:", error);
+      res.status(500).json({ error: "Failed to fetch interview jobs" });
     }
   });
 
@@ -1281,6 +1501,7 @@ export async function registerRoutes(
 
       // Save analysis to database
       const savedAnalysis = await storage.createATSAnalysis({
+        userId,
         jobId: jobId ? parseInt(jobId) : undefined,
         jobTitle: jobTitle || "Untitled Job",
         jobCompany: jobCompany || undefined,
@@ -2664,6 +2885,7 @@ export async function registerRoutes(
             : "";
 
         savedOptimizedResume = await storage.createOptimizedResume({
+          userId,
           originalResumeId: resume.id,
           jobId: job.id,
           atsAnalysisId: atsAnalysis.id,
@@ -2849,12 +3071,37 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Related job or resume not found" });
       }
       
+      const technicalSkillsString = typeof optimizedResume.technicalSkills === "string"
+        ? optimizedResume.technicalSkills
+        : Array.isArray(optimizedResume.technicalSkills as unknown)
+          ? (optimizedResume.technicalSkills as unknown[]).map(String).join(", ")
+          : "";
+
+      const relevantExperience = Array.isArray(optimizedResume.relevantExperience)
+        ? optimizedResume.relevantExperience
+            .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+            .map((x) => ({
+              title: String(x.title ?? ""),
+              company: String(x.company ?? ""),
+              bullets: Array.isArray((x as any).bullets) ? (x as any).bullets.map(String) : [],
+            }))
+        : [];
+
+      const projects = Array.isArray(optimizedResume.projects)
+        ? optimizedResume.projects
+            .filter((p): p is Record<string, unknown> => typeof p === "object" && p !== null)
+            .map((p) => ({
+              name: String(p.name ?? ""),
+              bullets: Array.isArray((p as any).bullets) ? (p as any).bullets.map(String) : [],
+            }))
+        : null;
+
       const resumeData = {
         professionalSummary: optimizedResume.professionalSummary,
-        technicalSkills: optimizedResume.technicalSkills,
+        technicalSkills: technicalSkillsString,
         education: optimizedResume.education || "",
-        relevantExperience: optimizedResume.relevantExperience,
-        projects: optimizedResume.projects,
+        relevantExperience,
+        projects,
       };
       
       const metadata = {

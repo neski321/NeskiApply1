@@ -21,6 +21,7 @@ import {
   MessageSquare,
   AlertCircle,
   Sparkles,
+  Mic,
   Loader2,
   Pencil,
   Check,
@@ -28,7 +29,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { updateJob, deleteJob, optimizeResumeForJob, getOptimizedResumes, type OptimizeResumeResponse } from "@/lib/api";
+import { updateJob, deleteJob, optimizeResumeForJob, getOptimizedResumes, getResumes, getInterviewResumes, uploadInterviewResumeFile, type OptimizeResumeResponse } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -46,18 +47,27 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface JobDetailModalProps {
   job: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onJobUpdate?: (job: Job) => void;
+  onStartInterviewPrep?: (jobId: number, resumeId: number, source: "resume" | "interview_resume") => void;
 }
 
-export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDetailModalProps) {
+export function JobDetailModal({ job, open, onOpenChange, onJobUpdate, onStartInterviewPrep }: JobDetailModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [optimizationResult, setOptimizationResult] = useState<OptimizeResumeResponse | null>(null);
   const [showOptimizedModal, setShowOptimizedModal] = useState(false);
   const [showOptimizedResumeAlert, setShowOptimizedResumeAlert] = useState(false);
@@ -67,6 +77,12 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
   const [isTooInexperienced, setIsTooInexperienced] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState("");
+  const [showInterviewPrepResumeDialog, setShowInterviewPrepResumeDialog] = useState(false);
+  const [selectedResumeIdForPrep, setSelectedResumeIdForPrep] = useState<number | null>(null);
+  const [selectedResumeSourceForPrep, setSelectedResumeSourceForPrep] = useState<"resume" | "interview_resume">("resume");
+  const [resumeSourceForPrep, setResumeSourceForPrep] = useState<"existing" | "upload">("existing");
+  const [uploadFileForPrep, setUploadFileForPrep] = useState<File | null>(null);
+  const [uploadNameForPrep, setUploadNameForPrep] = useState("");
 
   useEffect(() => {
     if (job) {
@@ -84,6 +100,87 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
 
   const optimizedResumeId = optimizedResumes.length > 0 ? optimizedResumes[0].id : null;
 
+  const { data: resumes = [] } = useQuery({
+    queryKey: ["resumes"],
+    queryFn: getResumes,
+    enabled: showInterviewPrepResumeDialog && !!job?.id,
+  });
+
+  const { data: interviewResumes = [] } = useQuery({
+    queryKey: ["interviewResumes"],
+    queryFn: getInterviewResumes,
+    enabled: showInterviewPrepResumeDialog && !!job?.id,
+  });
+
+  const handleOpenInterviewPrepDialog = () => {
+    setShowInterviewPrepResumeDialog(true);
+  };
+
+  const isResumeIdValid = (id: number, source: "resume" | "interview_resume") =>
+    source === "resume" ? resumes.some((r) => r.id === id) : interviewResumes.some((r) => r.id === id);
+
+  useEffect(() => {
+    if (!showInterviewPrepResumeDialog) return;
+    const hasResumes = resumes.length > 0 || interviewResumes.length > 0;
+    if (!hasResumes) return;
+    if (selectedResumeIdForPrep === null || !isResumeIdValid(selectedResumeIdForPrep, selectedResumeSourceForPrep)) {
+      const defaultResumeId = job?.matchedResumeId;
+      if (defaultResumeId != null && resumes.some((r) => r.id === defaultResumeId)) {
+        setSelectedResumeIdForPrep(defaultResumeId);
+        setSelectedResumeSourceForPrep("resume");
+      } else if (resumes.length > 0) {
+        setSelectedResumeIdForPrep(resumes[0].id);
+        setSelectedResumeSourceForPrep("resume");
+      } else {
+        setSelectedResumeIdForPrep(interviewResumes[0].id);
+        setSelectedResumeSourceForPrep("interview_resume");
+      }
+    }
+  }, [showInterviewPrepResumeDialog, resumes, interviewResumes, job?.matchedResumeId, selectedResumeIdForPrep, selectedResumeSourceForPrep]);
+
+  const handleStartInterviewPrepConfirm = () => {
+    if (!job || selectedResumeIdForPrep == null) return;
+    onStartInterviewPrep?.(job.id, selectedResumeIdForPrep, selectedResumeSourceForPrep);
+    setShowInterviewPrepResumeDialog(false);
+    setSelectedResumeIdForPrep(null);
+    setSelectedResumeSourceForPrep("resume");
+    setResumeSourceForPrep("existing");
+    setUploadFileForPrep(null);
+    setUploadNameForPrep("");
+    onOpenChange(false);
+  };
+
+  const uploadResumeForPrepMutation = useMutation({
+    mutationFn: ({ file, name }: { file: File; name: string }) => uploadInterviewResumeFile(file, name),
+    onSuccess: (newResume) => {
+      queryClient.invalidateQueries({ queryKey: ["interviewResumes"] });
+      setSelectedResumeIdForPrep(newResume.id);
+      setSelectedResumeSourceForPrep("interview_resume");
+      setUploadFileForPrep(null);
+      setUploadNameForPrep("");
+      toast({
+        title: "Resume uploaded",
+        description: "Saved to interview resumes. Click Start Interview Prep when ready.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleUploadPdfForPrep = () => {
+    if (!uploadFileForPrep) {
+      toast({ title: "No file selected", description: "Please select a PDF file.", variant: "destructive" });
+      return;
+    }
+    const name = uploadNameForPrep.trim() || uploadFileForPrep.name.replace(/\.pdf$/i, "") || "Uploaded resume";
+    uploadResumeForPrepMutation.mutate({ file: uploadFileForPrep, name });
+  };
+
   const handleNavigateToOptimizedResumes = () => {
     if (optimizedResumeId) {
       setLocation(`/resumes?tab=optimized&highlightId=${optimizedResumeId}`);
@@ -95,9 +192,11 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
     mutationFn: (data: Partial<Job>) => updateJob(job!.id, data),
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["interviewJobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       queryClient.invalidateQueries({ queryKey: ["untitledJobsCount"] });
-      
+      onJobUpdate?.(response as Job);
+
       // Check if there are optimized resumes when marking as applied
       if (response.hasOptimizedResumes && response.optimizedResumesCount) {
         setOptimizedResumesCount(response.optimizedResumesCount);
@@ -117,6 +216,7 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
     mutationFn: (options: { expired: boolean; reason?: string }) => deleteJob(job!.id, options.expired, options.reason),
     onSuccess: (_, options) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["interviewJobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       let description = `"${job!.title}" has been removed`;
       if (options.reason === "too_inexperienced") {
@@ -545,6 +645,25 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
             </div>
           </div>
 
+          {job.gotInterview && location === "/interview-prep" && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <Button
+                  onClick={handleOpenInterviewPrepDialog}
+                  className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700"
+                  disabled={updateJobMutation.isPending || deleteJobMutation.isPending}
+                >
+                  <Mic className="h-4 w-4" />
+                  Start Interview Prep
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  You&apos;ll be asked to select the resume you submitted for this role.
+                </p>
+              </div>
+            </>
+          )}
+
           <Separator />
 
           {/* Action Buttons */}
@@ -707,6 +826,190 @@ export function JobDetailModal({ job, open, onOpenChange, onJobUpdate }: JobDeta
       )}
 
       {/* Alert Dialog for Optimized Resume Warning */}
+      {/* Interview Prep: Select submitted resume */}
+      <Dialog open={showInterviewPrepResumeDialog} onOpenChange={(open) => {
+        setShowInterviewPrepResumeDialog(open);
+        if (!open) {
+          setSelectedResumeIdForPrep(null);
+          setSelectedResumeSourceForPrep("resume");
+          setResumeSourceForPrep("existing");
+          setUploadFileForPrep(null);
+          setUploadNameForPrep("");
+        }
+      }}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mic className="h-5 w-5 text-emerald-500" />
+              Start Interview Prep
+            </DialogTitle>
+            <DialogDescription>
+              Which resume did you submit for &quot;{job?.title}&quot; at {job?.company}? Choose one from your list or upload the PDF you submitted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex gap-2 p-1 rounded-lg bg-muted/50">
+              <Button
+                type="button"
+                variant={resumeSourceForPrep === "existing" ? "secondary" : "ghost"}
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  setResumeSourceForPrep("existing");
+                  if ((resumes.length > 0 || interviewResumes.length > 0) && selectedResumeIdForPrep == null) {
+                    const defaultResumeId = job?.matchedResumeId;
+                    if (defaultResumeId != null && resumes.some((r) => r.id === defaultResumeId)) {
+                      setSelectedResumeIdForPrep(defaultResumeId);
+                      setSelectedResumeSourceForPrep("resume");
+                    } else if (resumes.length > 0) {
+                      setSelectedResumeIdForPrep(resumes[0].id);
+                      setSelectedResumeSourceForPrep("resume");
+                    } else {
+                      setSelectedResumeIdForPrep(interviewResumes[0].id);
+                      setSelectedResumeSourceForPrep("interview_resume");
+                    }
+                  }
+                }}
+              >
+                From my resumes
+              </Button>
+              <Button
+                type="button"
+                variant={resumeSourceForPrep === "upload" ? "secondary" : "ghost"}
+                size="sm"
+                className="flex-1"
+                onClick={() => {
+                  setResumeSourceForPrep("upload");
+                  setSelectedResumeIdForPrep(null);
+                }}
+              >
+                Upload PDF
+              </Button>
+            </div>
+
+            {resumeSourceForPrep === "existing" ? (
+              <div className="space-y-2">
+                <Label>Resume submitted</Label>
+                <Select
+                  value={selectedResumeIdForPrep != null ? `${selectedResumeSourceForPrep}-${selectedResumeIdForPrep}` : ""}
+                  onValueChange={(v) => {
+                    if (!v) {
+                      setSelectedResumeIdForPrep(null);
+                      return;
+                    }
+                    const dashIdx = v.indexOf("-");
+                    const source = v.slice(0, dashIdx) as "resume" | "interview_resume";
+                    const id = parseInt(v.slice(dashIdx + 1), 10);
+                    if (source === "resume" || source === "interview_resume") {
+                      setSelectedResumeIdForPrep(id);
+                      setSelectedResumeSourceForPrep(source);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a resume" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {resumes.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">My resumes</div>
+                        {resumes.map((r) => (
+                          <SelectItem key={`resume-${r.id}`} value={`resume-${r.id}`}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    {interviewResumes.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Interview resumes</div>
+                        {interviewResumes.map((r) => (
+                          <SelectItem key={`interview_resume-${r.id}`} value={`interview_resume-${r.id}`}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+                {resumes.length === 0 && interviewResumes.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No resumes yet. Add one in the Resumes page or upload a PDF below.</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <Label>PDF you submitted</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    className="flex-1"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      setUploadFileForPrep(f ?? null);
+                      if (f && !uploadNameForPrep) setUploadNameForPrep(f.name.replace(/\.pdf$/i, ""));
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Resume name (optional)</Label>
+                  <Input
+                    placeholder={uploadFileForPrep?.name?.replace(/\.pdf$/i, "") ?? "e.g. John Doe - Software Engineer"}
+                    value={uploadNameForPrep}
+                    onChange={(e) => setUploadNameForPrep(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full gap-2"
+                  onClick={handleUploadPdfForPrep}
+                  disabled={!uploadFileForPrep || uploadResumeForPrepMutation.isPending}
+                >
+                  {uploadResumeForPrepMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>Upload PDF & use for prep</>
+                  )}
+                </Button>
+                {selectedResumeIdForPrep != null && (
+                  <p className="text-xs text-muted-foreground text-emerald-600 dark:text-emerald-400">Resume ready. Click Start Interview Prep below.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowInterviewPrepResumeDialog(false);
+                setSelectedResumeIdForPrep(null);
+                setSelectedResumeSourceForPrep("resume");
+                setResumeSourceForPrep("existing");
+                setUploadFileForPrep(null);
+                setUploadNameForPrep("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStartInterviewPrepConfirm}
+              disabled={
+                selectedResumeIdForPrep == null ||
+                (resumeSourceForPrep === "existing" && resumes.length === 0 && interviewResumes.length === 0)
+              }
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+            >
+              <Mic className="h-4 w-4" />
+              Start Interview Prep
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={showOptimizedResumeAlert} onOpenChange={setShowOptimizedResumeAlert}>
         <AlertDialogContent>
           <AlertDialogHeader>

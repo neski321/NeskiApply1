@@ -54,6 +54,7 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
     mutationFn: (options: { expired: boolean; reason?: string }) => deleteJob(job.id, options.expired, options.reason),
     onSuccess: (_, options) => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["interviewJobs"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       let description = `"${job.title}" has been removed`;
       if (options.reason === "too_inexperienced") {
@@ -119,6 +120,7 @@ export function JobCard({ job, onJobClick }: { job: Job; onJobClick?: (job: Job)
       // Delay query invalidation slightly to allow notification to be seen
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["jobs"] });
+        queryClient.invalidateQueries({ queryKey: ["interviewJobs"] });
         queryClient.invalidateQueries({ queryKey: ["stats"] });
       }, 100);
     },

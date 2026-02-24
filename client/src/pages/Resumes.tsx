@@ -327,7 +327,7 @@ export default function Resumes() {
                         <Input
                           ref={fileInputRef}
                           type="file"
-                          accept=".docx,.doc,.txt"
+                          accept=".pdf,.docx,.doc,.txt"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {

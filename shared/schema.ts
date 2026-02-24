@@ -63,6 +63,52 @@ export const insertResumeSchema = createInsertSchema(resumes).omit({
 export type InsertResume = z.infer<typeof insertResumeSchema>;
 export type Resume = typeof resumes.$inferSelect;
 
+// Interview resumes (uploaded when starting interview prep; separate from main resumes)
+export const interviewResumes = pgTable("interview_resumes", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  fileName: text("file_name").notNull(),
+  skills: text("skills").array().notNull(),
+  technicalSkillsSection: text("technical_skills_section"),
+  experience: text("experience").notNull(),
+  education: text("education"),
+  rawContent: text("raw_content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertInterviewResumeSchema = createInsertSchema(interviewResumes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInterviewResume = z.infer<typeof insertInterviewResumeSchema>;
+export type InterviewResume = typeof interviewResumes.$inferSelect;
+
+// Interview preps (generated Q&A per job + resume + mode, using selected AI)
+export const interviewPreps = pgTable("interview_preps", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  jobId: integer("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
+  resumeId: integer("resume_id").notNull(),
+  resumeSource: text("resume_source").notNull(), // "resume" | "interview_resume"
+  mode: text("mode").notNull(), // "screening" | "technical_deep_dive" | "pressure_test"
+  content: text("content").notNull(),
+  aiProvider: text("ai_provider"),
+  aiModel: text("ai_model"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertInterviewPrepSchema = createInsertSchema(interviewPreps).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertInterviewPrep = z.infer<typeof insertInterviewPrepSchema>;
+export type InterviewPrep = typeof interviewPreps.$inferSelect;
+
 // Jobs table
 export const jobs = pgTable("jobs", {
   id: serial("id").primaryKey(),

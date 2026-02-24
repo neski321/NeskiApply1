@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Briefcase, Settings, Activity, CheckCircle, XCircle, Clock, ScanSearch } from "lucide-react";
+import { LayoutDashboard, FileText, Briefcase, Settings, Activity, CheckCircle, XCircle, Clock, ScanSearch, Mic } from "lucide-react";
 
 export interface Job {
   id: string;
@@ -142,6 +142,7 @@ export const MOCK_RESUMES: Resume[] = [
 export const NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/" },
   { label: "Job Feed", icon: Briefcase, href: "/jobs" },
+  { label: "Interview Prep", icon: Mic, href: "/interview-prep" },
   { label: "ATS Analyzer", icon: ScanSearch, href: "/ats-analyzer" },
   { label: "Resumes", icon: FileText, href: "/resumes" },
   { label: "Activity Log", icon: Activity, href: "/activity" },

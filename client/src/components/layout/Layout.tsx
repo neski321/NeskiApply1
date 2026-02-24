@@ -5,8 +5,8 @@ import { Bot, Menu, LogOut, Shield } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "@tanstack/react-query";
-import { getAPIUsage } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getAPIUsage, getJobs } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,7 @@ interface ProviderDisplay {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -43,6 +44,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
     queryFn: getAPIUsage,
     refetchInterval: 60000, // Refetch every minute
   });
+
+  // Prefetch Job Feed and Dashboard queries so they're ready when user navigates
+  useEffect(() => {
+    if (!user) return;
+    queryClient.prefetchQuery({
+      queryKey: ["jobs", "all", undefined, "unapplied"],
+      queryFn: () => getJobs({ isApplied: false }),
+      staleTime: 60_000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["jobs", "all"],
+      queryFn: () => getJobs(),
+      staleTime: 60_000,
+    });
+    queryClient.prefetchQuery({
+      queryKey: ["jobs", "unapplied", false],
+      queryFn: () => getJobs({ isApplied: false }),
+      staleTime: 60_000,
+    });
+  }, [user, queryClient]);
 
   // Build list of available providers with their usage data
   const availableProviders = useMemo<ProviderDisplay[]>(() => {
