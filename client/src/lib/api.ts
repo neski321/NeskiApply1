@@ -1,4 +1,4 @@
-import type { Resume, InsertResume, Job, InsertJob, ATSAnalysis, Setting, ActivityLog, User } from "@shared/schema";
+import type { Resume, InsertResume, InterviewResume, InterviewPrep, Job, InsertJob, ATSAnalysis, Setting, ActivityLog, User } from "@shared/schema";
 
 // ============ AUTHENTICATION API ============
 
@@ -104,6 +104,126 @@ export async function deleteResume(id: number): Promise<void> {
   if (!response.ok) throw new Error("Failed to delete resume");
 }
 
+// ============ INTERVIEW RESUMES API (saved when starting interview prep) ============
+
+export async function getInterviewResumes(): Promise<InterviewResume[]> {
+  const response = await fetch("/api/interview-resumes", { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to fetch interview resumes");
+  return response.json();
+}
+
+export async function uploadInterviewResumeFile(file: File, name: string): Promise<InterviewResume> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("name", name);
+  const response = await fetch("/api/interview-resumes/upload", {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    let errorMessage = "Failed to upload resume";
+    const contentType = response.headers.get("content-type");
+    if (contentType?.includes("application/json")) {
+      try {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(errorMessage);
+  }
+  const contentType = response.headers.get("content-type");
+  if (!contentType?.includes("application/json")) {
+    throw new Error("Server returned an unexpected response format");
+  }
+  return response.json();
+}
+
+// ============ INTERVIEW PREPS API ============
+
+export type InterviewPrepMode = "screening" | "technical_deep_dive" | "pressure_test";
+
+export async function getInterviewPreps(jobId: number): Promise<InterviewPrep[]> {
+  const response = await fetch(`/api/interview-preps?jobId=${jobId}`, { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to fetch interview preps");
+  return response.json();
+}
+
+export interface GenerateInterviewPrepResult {
+  prep: { id: number; content: string; mode: string; aiProvider: string | null; aiModel: string | null; createdAt: string };
+  provider: string;
+  model?: string;
+}
+
+export async function generateInterviewPrep(
+  jobId: number,
+  resumeId: number,
+  source: "resume" | "interview_resume",
+  mode: InterviewPrepMode
+): Promise<GenerateInterviewPrepResult> {
+  const response = await fetch("/api/interview-preps/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ jobId, resumeId, source, mode }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to generate interview prep");
+  }
+  return response.json();
+}
+
+export interface AnswerInterviewQuestionsResult {
+  content: string;
+  provider: string;
+  model?: string;
+  questionCount: number;
+}
+
+export async function answerInterviewQuestions(
+  jobId: number,
+  resumeId: number,
+  source: "resume" | "interview_resume",
+  questionsText: string
+): Promise<AnswerInterviewQuestionsResult> {
+  const response = await fetch("/api/interview-preps/answer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ jobId, resumeId, source, questionsText }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to answer interview questions");
+  }
+  return response.json();
+}
+
+export interface SimplifyAnswersResult {
+  content: string;
+  provider: string;
+  model?: string;
+}
+
+export async function simplifyInterviewAnswers(
+  answersContent: string
+): Promise<SimplifyAnswersResult> {
+  const response = await fetch("/api/interview-preps/simplify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ answersContent }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to simplify answers");
+  }
+  return response.json();
+}
+
 export async function uploadResumeFile(file: File, name: string): Promise<Resume> {
   const formData = new FormData();
   formData.append("file", file);
@@ -151,15 +271,25 @@ export async function uploadResumeFile(file: File, name: string): Promise<Resume
 
 // ============ JOBS API ============
 
-export async function getJobs(filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]> {
+export async function getJobs(filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean; gotInterview?: boolean }): Promise<Job[]> {
   const params = new URLSearchParams();
   if (filters?.status) params.append("status", filters.status);
   if (filters?.minMatchScore) params.append("minMatchScore", filters.minMatchScore.toString());
   if (filters?.isApplied !== undefined) params.append("isApplied", filters.isApplied.toString());
   if (filters?.rejected !== undefined) params.append("rejected", filters.rejected.toString());
+  if (filters?.gotInterview !== undefined) params.append("gotInterview", filters.gotInterview.toString());
   
   const response = await fetch(`/api/jobs?${params}`);
   if (!response.ok) throw new Error("Failed to fetch jobs");
+  return response.json();
+}
+
+export async function getInterviewJobs(): Promise<Job[]> {
+  const response = await fetch("/api/jobs/interview", {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Failed to fetch interview jobs");
   return response.json();
 }
 

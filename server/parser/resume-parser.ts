@@ -2,50 +2,34 @@ import { readFile } from "fs/promises";
 import path from "path";
 
 // Dynamic imports for CommonJS modules (works in both ESM and CJS)
-let pdfParse: any;
+let PDFParseClass: any;
 let mammoth: any;
 
-// Lazy load modules to avoid issues with import.meta.url in CJS
-async function loadPdfParse() {
-  if (!pdfParse) {
+async function loadPDFParseClass() {
+  if (!PDFParseClass) {
     try {
-      // Try require first (for bundled CommonJS production)
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       if (typeof require !== "undefined") {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const pdfParseModule = require("pdf-parse");
-          pdfParse = pdfParseModule.default || pdfParseModule;
-          if (typeof pdfParse === "function") {
-            return pdfParse;
-          }
-        } catch (requireError) {
-          // require failed, fall through to dynamic import
-          console.log("[PDF Parse] require() failed, trying dynamic import:", requireError);
+          const mod = require("pdf-parse");
+          PDFParseClass = mod.PDFParse || mod.default?.PDFParse;
+          if (PDFParseClass) return PDFParseClass;
+        } catch {
+          // fall through to dynamic import
         }
       }
-      
-      // Fallback to dynamic import (for ESM development)
-      const pdfParseModule = await import("pdf-parse");
-      // pdf-parse is a CommonJS module - handle various export formats
-      if (typeof pdfParseModule === "function") {
-        pdfParse = pdfParseModule;
-      } else if (pdfParseModule.default && typeof pdfParseModule.default === "function") {
-        pdfParse = pdfParseModule.default;
-      } else {
-        pdfParse = pdfParseModule.default || pdfParseModule;
-      }
-      
-      // Final validation
-      if (typeof pdfParse !== "function") {
-        throw new Error(`pdf-parse module is not a function. Type: ${typeof pdfParse}`);
+      const mod = await import("pdf-parse");
+      PDFParseClass = (mod as any).PDFParse || (mod as any).default?.PDFParse;
+      if (!PDFParseClass) {
+        throw new Error("PDFParse class not found in pdf-parse module");
       }
     } catch (error) {
       console.error("Error loading pdf-parse module:", error);
       throw new Error(`Failed to load pdf-parse module: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
-  return pdfParse;
+  return PDFParseClass;
 }
 
 async function loadMammoth() {
@@ -85,14 +69,16 @@ export interface ParsedResume {
 }
 
 /**
- * Extract text from PDF file
+ * Extract text from PDF file using pdf-parse v2 API
  */
 export async function parsePDF(filePath: string): Promise<string> {
   try {
-    const pdfParseModule = await loadPdfParse();
+    const PDFParse = await loadPDFParseClass();
     const dataBuffer = await readFile(filePath);
-    const data = await pdfParseModule(dataBuffer);
-    return data.text;
+    const parser = new PDFParse({ data: dataBuffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text;
   } catch (error) {
     throw new Error(`Failed to parse PDF: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
@@ -113,19 +99,21 @@ export async function parseDOCX(filePath: string): Promise<string> {
 
 /**
  * Parse resume file based on extension
- * Note: PDF support removed - only DOC/DOCX/TXT are supported
+ * Supports PDF, DOCX, DOC, and TXT.
  */
 export async function parseResumeFile(filePath: string): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
-  
+
   switch (ext) {
+    case ".pdf":
+      return await parsePDF(filePath);
     case ".docx":
     case ".doc":
       return await parseDOCX(filePath);
     case ".txt":
       return await readFile(filePath, "utf-8");
     default:
-      throw new Error(`Unsupported file type: ${ext}. Supported types: .docx, .doc, .txt`);
+      throw new Error(`Unsupported file type: ${ext}. Supported types: .pdf, .docx, .doc, .txt`);
   }
 }
 

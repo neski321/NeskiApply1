@@ -67,6 +67,7 @@ export default function Settings() {
     reminderMatchThreshold: "70",
     headlessMode: true,
     aiProviderPreference: "auto",
+    interviewPrepAiProvider: "auto",
     perplexityApiKey: "",
     perplexityModel: "sonar-pro",
     geminiApiKey: "",
@@ -193,6 +194,7 @@ export default function Settings() {
         reminderMatchThreshold: settingsMap.reminder_match_threshold || "70",
         headlessMode: settingsMap.headless_mode === "true",
         aiProviderPreference: settingsMap.ai_provider_preference || "auto",
+        interviewPrepAiProvider: settingsMap.interview_prep_ai_provider || settingsMap.ai_provider_preference || "auto",
         perplexityApiKey: settingsMap.perplexity_api_key || "",
         perplexityModel: settingsMap.perplexity_model || "sonar-pro",
         geminiApiKey: settingsMap.gemini_api_key || "",
@@ -285,6 +287,7 @@ export default function Settings() {
       original.reminderMatchThreshold !== current.reminderMatchThreshold ||
       original.headlessMode !== current.headlessMode ||
       original.aiProviderPreference !== current.aiProviderPreference ||
+      original.interviewPrepAiProvider !== current.interviewPrepAiProvider ||
       original.perplexityApiKey !== current.perplexityApiKey ||
       original.perplexityModel !== current.perplexityModel ||
       original.geminiApiKey !== current.geminiApiKey ||
@@ -481,6 +484,7 @@ export default function Settings() {
       reminder_match_threshold: formData.reminderMatchThreshold,
       headless_mode: formData.headlessMode.toString(),
       ai_provider_preference: formData.aiProviderPreference,
+      interview_prep_ai_provider: formData.interviewPrepAiProvider,
       perplexity_api_key: formData.perplexityApiKey,
       perplexity_model: formData.perplexityModel,
       gemini_api_key: formData.geminiApiKey,
@@ -1079,6 +1083,38 @@ export default function Settings() {
                       : formData.aiProviderPreference === "gemini,openrouter"
                       ? "Uses Gemini first, falls back to OpenRouter if Gemini fails."
                       : "Automatically uses Perplexity first, falls back to Gemini then OpenRouter if needed."}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    Interview Prep AI Provider
+                    <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">For interview questions</span>
+                  </Label>
+                  <select
+                    value={formData.interviewPrepAiProvider}
+                    onChange={(e) => setFormData({ ...formData, interviewPrepAiProvider: e.target.value })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <optgroup label="Use Default">
+                      <option value="auto">Same as AI Provider Preference above</option>
+                    </optgroup>
+                    <optgroup label="Single Provider">
+                      <option value="perplexity">Perplexity Only</option>
+                      <option value="gemini">Gemini Only</option>
+                      <option value="openrouter">OpenRouter Only</option>
+                    </optgroup>
+                    <optgroup label="Two Providers">
+                      <option value="perplexity,gemini">Perplexity → Gemini</option>
+                      <option value="perplexity,openrouter">Perplexity → OpenRouter</option>
+                      <option value="gemini,openrouter">Gemini → OpenRouter</option>
+                    </optgroup>
+                    <optgroup label="All Providers">
+                      <option value="perplexity,gemini,openrouter">Perplexity → Gemini → OpenRouter</option>
+                    </optgroup>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    AI model used to generate interview prep questions. Choose which provider(s) to use when creating practice questions from job descriptions.
                   </p>
                 </div>
 

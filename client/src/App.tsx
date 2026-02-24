@@ -11,6 +11,8 @@ import Resumes from "@/pages/Resumes";
 import Settings from "@/pages/Settings";
 import Activity from "@/pages/Activity";
 import ATSAnalyzer from "@/pages/ATSAnalyzer";
+import InterviewPrep from "@/pages/InterviewPrep";
+import InterviewPrepSession from "@/pages/InterviewPrepSession";
 import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -65,6 +67,16 @@ function Router() {
       <Route path="/jobs">
         <ProtectedRoute>
           <JobFeed />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/interview-prep/session">
+        <ProtectedRoute>
+          <InterviewPrepSession />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/interview-prep">
+        <ProtectedRoute>
+          <InterviewPrep />
         </ProtectedRoute>
       </Route>
       <Route path="/ats-analyzer">

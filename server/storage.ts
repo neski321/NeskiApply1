@@ -17,8 +17,14 @@ import {
   type InsertPasswordResetToken,
   type DeletedJob,
   type InsertDeletedJob,
+  type InterviewResume,
+  type InsertInterviewResume,
+  type InterviewPrep,
+  type InsertInterviewPrep,
   users,
   resumes,
+  interviewResumes,
+  interviewPreps,
   jobs,
   atsAnalyses,
   settings,
@@ -28,7 +34,7 @@ import {
   deletedJobs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql, or, isNull, asc, lt, gt } from "drizzle-orm";
+import { eq, desc, and, sql, or, isNull, asc, lt, gt, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -47,9 +53,21 @@ export interface IStorage {
   deleteResume(id: number, userId: string): Promise<boolean>;
   countActiveResumesForMatching(userId: string): Promise<number>;
 
+  // Interview Resumes (saved when starting interview prep)
+  createInterviewResume(resume: InsertInterviewResume, userId: string): Promise<InterviewResume>;
+  getInterviewResumes(userId: string): Promise<InterviewResume[]>;
+  getInterviewResume(id: number, userId: string): Promise<InterviewResume | undefined>;
+  deleteInterviewResume(id: number, userId: string): Promise<boolean>;
+
+  // Interview Preps (generated per job + resume + mode)
+  createInterviewPrep(prep: InsertInterviewPrep, userId: string): Promise<InterviewPrep>;
+  getInterviewPrepsByJob(userId: string, jobId: number): Promise<InterviewPrep[]>;
+  getInterviewPrep(id: number, userId: string): Promise<InterviewPrep | undefined>;
+
   // Jobs
   createJob(job: InsertJob, userId: string): Promise<Job>;
-  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]>;
+  getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean; gotInterview?: boolean }): Promise<Job[]>;
+  getInterviewJobs(userId: string): Promise<Job[]>;
   getJob(id: number, userId: string): Promise<Job | undefined>;
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string, expired?: boolean, reason?: string): Promise<boolean>;
@@ -80,6 +98,7 @@ export interface IStorage {
   // Optimized Resumes
   createOptimizedResume(resume: InsertOptimizedResume, userId: string): Promise<OptimizedResume>;
   getOptimizedResumes(userId: string, jobId?: number): Promise<OptimizedResume[]>;
+  getOptimizedResumeCountsByJobIds(userId: string, jobIds: number[]): Promise<Map<number, number>>;
   getOptimizedResume(id: number, userId: string): Promise<OptimizedResume | undefined>;
   deleteOptimizedResume(id: number, userId: string): Promise<boolean>;
 
@@ -159,13 +178,48 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount ? result.rowCount > 0 : false;
   }
 
+  // Interview Resumes
+  async createInterviewResume(resume: InsertInterviewResume, userId: string): Promise<InterviewResume> {
+    const [newResume] = await db.insert(interviewResumes).values({ ...resume, userId }).returning();
+    return newResume;
+  }
+
+  async getInterviewResumes(userId: string): Promise<InterviewResume[]> {
+    return await db.select().from(interviewResumes).where(eq(interviewResumes.userId, userId)).orderBy(desc(interviewResumes.updatedAt));
+  }
+
+  async getInterviewResume(id: number, userId: string): Promise<InterviewResume | undefined> {
+    const [resume] = await db.select().from(interviewResumes).where(and(eq(interviewResumes.id, id), eq(interviewResumes.userId, userId)));
+    return resume || undefined;
+  }
+
+  async deleteInterviewResume(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(interviewResumes).where(and(eq(interviewResumes.id, id), eq(interviewResumes.userId, userId)));
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  // Interview Preps
+  async createInterviewPrep(prep: InsertInterviewPrep, userId: string): Promise<InterviewPrep> {
+    const [newPrep] = await db.insert(interviewPreps).values({ ...prep, userId }).returning();
+    return newPrep;
+  }
+
+  async getInterviewPrepsByJob(userId: string, jobId: number): Promise<InterviewPrep[]> {
+    return await db.select().from(interviewPreps).where(and(eq(interviewPreps.userId, userId), eq(interviewPreps.jobId, jobId))).orderBy(desc(interviewPreps.createdAt));
+  }
+
+  async getInterviewPrep(id: number, userId: string): Promise<InterviewPrep | undefined> {
+    const [prep] = await db.select().from(interviewPreps).where(and(eq(interviewPreps.id, id), eq(interviewPreps.userId, userId)));
+    return prep || undefined;
+  }
+
   // Jobs
   async createJob(job: InsertJob, userId: string): Promise<Job> {
     const [newJob] = await db.insert(jobs).values({ ...job, userId }).returning();
     return newJob;
   }
 
-  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean }): Promise<Job[]> {
+  async getJobs(userId: string, filters?: { status?: string; minMatchScore?: number; isApplied?: boolean; rejected?: boolean; gotInterview?: boolean }): Promise<Job[]> {
     const conditions = [eq(jobs.userId, userId)];
     
     if (filters?.status) {
@@ -192,8 +246,23 @@ export class DatabaseStorage implements IStorage {
         conditions.push(or(eq(jobs.rejected, false), isNull(jobs.rejected)));
       }
     }
+    if (filters?.gotInterview !== undefined) {
+      if (filters.gotInterview === true) {
+        conditions.push(eq(jobs.gotInterview, true));
+      } else {
+        conditions.push(or(eq(jobs.gotInterview, false), isNull(jobs.gotInterview)));
+      }
+    }
 
     return await db.select().from(jobs).where(and(...conditions)).orderBy(desc(jobs.createdAt));
+  }
+
+  async getInterviewJobs(userId: string): Promise<Job[]> {
+    return await db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.userId, userId), sql`${jobs.gotInterview} IS TRUE`))
+      .orderBy(desc(jobs.createdAt));
   }
 
   async getJob(id: number, userId: string): Promise<Job | undefined> {
@@ -747,6 +816,20 @@ export class DatabaseStorage implements IStorage {
       .from(optimizedResumes)
       .where(and(...conditions))
       .orderBy(desc(optimizedResumes.createdAt));
+  }
+
+  /** Batch fetch optimized resume counts per job (avoids N+1 queries) */
+  async getOptimizedResumeCountsByJobIds(userId: string, jobIds: number[]): Promise<Map<number, number>> {
+    if (jobIds.length === 0) return new Map();
+    const rows = await db
+      .select({
+        jobId: optimizedResumes.jobId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(optimizedResumes)
+      .where(and(eq(optimizedResumes.userId, userId), inArray(optimizedResumes.jobId, jobIds)))
+      .groupBy(optimizedResumes.jobId);
+    return new Map(rows.map((r) => [r.jobId, r.count]));
   }
 
   async getOptimizedResume(id: number, userId: string): Promise<OptimizedResume | undefined> {

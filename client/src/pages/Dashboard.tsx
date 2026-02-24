@@ -62,6 +62,8 @@ export default function Dashboard() {
   const { data: allJobsUnfiltered = [] } = useQuery({
     queryKey: ["jobs", "all"],
     queryFn: () => getJobs(),
+    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
   });
 
   // Fetch real data with applied and rejected filters
@@ -82,6 +84,8 @@ export default function Dashboard() {
       // Actually, "all" should show everything, but we'll handle that in the UI
       return getJobs(filters);
     },
+    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
   });
 
   // Filter jobs based on high priority threshold (unless showing rejected jobs)

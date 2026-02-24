@@ -66,7 +66,7 @@ export default function JobFeed() {
 
   const effectiveSortBy = sortBy;
 
-  // Fetch all jobs
+  // Fetch all jobs - placeholderData shows cached data while refetching, staleTime reduces refetches
   const { data: allJobs = [], isLoading } = useQuery({
     queryKey: ["jobs", statusFilter, minMatchScore, appliedFilter],
     queryFn: () => {
@@ -77,15 +77,15 @@ export default function JobFeed() {
       if (minMatchScore !== undefined) {
         filters.minMatchScore = minMatchScore;
       }
-      // Default behavior: hide applied jobs unless explicitly filtering for them
       if (appliedFilter === "applied") {
         filters.isApplied = true;
       } else if (appliedFilter === "unapplied") {
         filters.isApplied = false;
       }
-      // "all" means show everything (including applied), but this is only when user explicitly selects it
       return getJobs(filters);
     },
+    placeholderData: (previousData) => previousData,
+    staleTime: 60_000, // 1 min - use cache when navigating back
   });
 
   // Helper: does job title match the title filter? (title-only; supports presets with aliases)
