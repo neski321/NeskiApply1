@@ -374,11 +374,16 @@ export default function InterviewPrepSession() {
           })}
         </section>
 
-        <Card className="shadow-sm">
+        <Card className="shadow-sm border-l-4 border-l-blue-500/50">
           <CardHeader>
-            <CardTitle className="text-base">Answer asked questions</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-500/10">
+                <Code2 className="h-4 w-4 text-blue-500" />
+              </span>
+              Technical answers
+            </CardTitle>
             <CardDescription>
-              Paste questions you’ve already been asked. The AI will draft strong, resume-based answers tailored to this job.
+              Paste questions you have already been asked. The AI will draft strong, technically detailed, resume-based answers tailored to this job.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -444,7 +449,7 @@ export default function InterviewPrepSession() {
                   variant="outline"
                   className="w-full gap-2"
                   onClick={() => {
-                    setExpandedPrep({ label: "Answer asked questions", content: answersContent });
+                    setExpandedPrep({ label: "Technical answers", content: answersContent });
                     setViewMode("onebyone");
                     setOneByOneIndex(0);
                   }}
