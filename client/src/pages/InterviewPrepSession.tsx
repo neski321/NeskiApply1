@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getJob, getResumes, getInterviewResumes, getInterviewPreps, generateInterviewPrep, answerInterviewQuestions, simplifyInterviewAnswers, type InterviewPrepMode } from "@/lib/api";
+import { getJob, getResumes, getInterviewResumes, getInterviewPreps, generateInterviewPrep, answerInterviewQuestions, answerBehavioralQuestions, simplifyInterviewAnswers, type InterviewPrepMode } from "@/lib/api";
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mic, ArrowLeft, Loader2, MessageSquare, Code2, Zap, Maximize2, ChevronLeft, ChevronRight, List, LayoutGrid, Sparkles } from "lucide-react";
+import { Mic, ArrowLeft, Loader2, MessageSquare, Code2, Zap, Maximize2, ChevronLeft, ChevronRight, List, LayoutGrid, Sparkles, Heart } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -159,6 +159,8 @@ export default function InterviewPrepSession() {
   const [oneByOneIndex, setOneByOneIndex] = useState(0);
   const [askedQuestionsText, setAskedQuestionsText] = useState("");
   const [answersContent, setAnswersContent] = useState<string | null>(null);
+  const [behavioralQuestionsText, setBehavioralQuestionsText] = useState("");
+  const [behavioralAnswersContent, setBehavioralAnswersContent] = useState<string | null>(null);
 
   const jobId = searchParams.get("jobId");
   const resumeId = searchParams.get("resumeId");
@@ -240,6 +242,31 @@ export default function InterviewPrepSession() {
     onSuccess: (data) => {
       setAnswersContent(data.content);
       toast({ title: "Answers simplified", description: "Rewrote in simpler, less technical language." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Simplify failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const behavioralMutation = useMutation({
+    mutationFn: () => answerBehavioralQuestions(jobIdNum!, resumeIdNum!, source!, behavioralQuestionsText),
+    onSuccess: (data) => {
+      setBehavioralAnswersContent(data.content);
+      toast({
+        title: "Behavioral answers generated",
+        description: `Drafted behavioral answers for ${data.questionCount} question${data.questionCount === 1 ? "" : "s"}.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Behavioral answering failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const simplifyBehavioralMutation = useMutation({
+    mutationFn: () => simplifyInterviewAnswers(behavioralAnswersContent!),
+    onSuccess: (data) => {
+      setBehavioralAnswersContent(data.content);
+      toast({ title: "Answers simplified", description: "Rewrote in simpler language." });
     },
     onError: (error: Error) => {
       toast({ title: "Simplify failed", description: error.message, variant: "destructive" });
@@ -418,6 +445,94 @@ export default function InterviewPrepSession() {
                   className="w-full gap-2"
                   onClick={() => {
                     setExpandedPrep({ label: "Answer asked questions", content: answersContent });
+                    setViewMode("onebyone");
+                    setOneByOneIndex(0);
+                  }}
+                >
+                  <Maximize2 className="h-4 w-4" />
+                  Expand (optional one-by-one)
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm border-l-4 border-l-pink-500/50">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-pink-500/10">
+                <Heart className="h-4 w-4 text-pink-500" />
+              </span>
+              Behavioral / Company-aligned answers
+            </CardTitle>
+            <CardDescription>
+              Paste the same or different questions. The AI will answer with a behavioral focus — soft skills, teamwork, leadership, and alignment with what this company values.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Textarea
+              value={behavioralQuestionsText}
+              onChange={(e) => setBehavioralQuestionsText(e.target.value)}
+              placeholder={"Paste questions here, one per line.\nExample:\nTell me about a time you resolved a conflict\nHow do you handle tight deadlines?\nWhy do you want to work here?"}
+              className="min-h-[120px] leading-relaxed"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => behavioralMutation.mutate()}
+                disabled={behavioralMutation.isPending || simplifyBehavioralMutation.isPending || behavioralQuestionsText.trim().length === 0}
+              >
+                {behavioralMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Generating behavioral answers...
+                  </>
+                ) : (
+                  "Generate behavioral answers"
+                )}
+              </Button>
+              {behavioralAnswersContent && (
+                <Button
+                  variant="secondary"
+                  onClick={() => simplifyBehavioralMutation.mutate()}
+                  disabled={simplifyBehavioralMutation.isPending || behavioralMutation.isPending}
+                  className="gap-2"
+                >
+                  {simplifyBehavioralMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Simplifying...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      Simplify answers
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBehavioralQuestionsText("");
+                  setBehavioralAnswersContent(null);
+                }}
+                disabled={(behavioralMutation.isPending || simplifyBehavioralMutation.isPending) && behavioralQuestionsText.trim().length === 0 && !behavioralAnswersContent}
+              >
+                Clear
+              </Button>
+            </div>
+
+            {behavioralAnswersContent && (
+              <div className="grid gap-2">
+                <div className="rounded-lg bg-muted/50 border p-3 text-sm overflow-hidden max-h-56">
+                  <p className="whitespace-pre-wrap text-muted-foreground leading-relaxed line-clamp-[10]">{stripMarkdown(behavioralAnswersContent)}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => {
+                    setExpandedPrep({ label: "Behavioral / Company-aligned answers", content: behavioralAnswersContent });
                     setViewMode("onebyone");
                     setOneByOneIndex(0);
                   }}

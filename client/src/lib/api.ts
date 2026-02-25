@@ -202,6 +202,25 @@ export async function answerInterviewQuestions(
   return response.json();
 }
 
+export async function answerBehavioralQuestions(
+  jobId: number,
+  resumeId: number,
+  source: "resume" | "interview_resume",
+  questionsText: string
+): Promise<AnswerInterviewQuestionsResult> {
+  const response = await fetch("/api/interview-preps/answer-behavioral", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ jobId, resumeId, source, questionsText }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || "Failed to answer behavioral questions");
+  }
+  return response.json();
+}
+
 export interface SimplifyAnswersResult {
   content: string;
   provider: string;

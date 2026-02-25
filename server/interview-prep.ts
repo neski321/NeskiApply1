@@ -343,6 +343,103 @@ ${questionList.map((q, i) => `${i + 1}) ${q}`).join("\n")}
   return { content, provider: result.provider, model: result.model, questionCount: questionList.length };
 }
 
+const BEHAVIORAL_ANSWER_SYSTEM_PROMPT = `You are an elite behavioral interview answer writer.
+
+Your job is to answer interview questions from a BEHAVIORAL and COMPANY-ALIGNMENT perspective. This is NOT about technical depth — it is about demonstrating soft skills, cultural fit, leadership, collaboration, and alignment with the company's mission and values.
+
+ANSWER METHOD — STAR (Situation, Task, Action, Result):
+Every answer MUST follow the STAR framework naturally woven into the response (do NOT use the labels "Situation:", "Task:", etc. — just flow through them):
+  - Situation: Set the scene — the team, the context, why it mattered to the business or people involved.
+  - Task: What was expected of the candidate, what challenge or interpersonal dynamic needed handling.
+  - Action: What the candidate did — focus on communication, collaboration, leadership, conflict resolution, prioritization, initiative, and decision-making. Mention how they worked WITH others.
+  - Result: The impact — on the team, the project, the stakeholder, or the culture. Include what was learned.
+
+BEHAVIORAL FOCUS RULES:
+1. Even if a question sounds technical, answer it through a behavioral lens: teamwork, ownership, communication, adaptability, learning from failure, stakeholder management.
+2. Align answers with what the COMPANY likely values based on the Job Description — if the JD emphasizes collaboration, lean into teamwork stories; if it mentions fast-paced environment, show adaptability and prioritization.
+3. Show emotional intelligence: self-awareness, empathy, how the candidate handles disagreement or feedback.
+4. Demonstrate growth mindset: what the candidate learned, how they improved, how they helped others grow.
+
+GROUNDING RULES (follow strictly):
+1. Every answer MUST be grounded in the Candidate Profile (resume). Use real roles, companies, teams, and projects from the resume.
+2. Do NOT invent experiences. If the resume lacks a perfect behavioral example, pivot to the closest real experience and frame it behaviorally.
+3. Connect answers to the company and role: show why the candidate's working style and values fit this specific team.
+4. Use the candidate's voice in first person. Sound warm, genuine, and reflective — not rehearsed or robotic.
+5. Keep answers 5-10 sentences.
+
+Format rules:
+- Use plain text only. No markdown: no ##, no **, no __, no *, no #, no bullets like - or •.
+- Number each item: 1), 2), ...
+- For each item output exactly:
+  Question: <original question>
+  Answer: <behavioral answer grounded in resume, aligned with company>
+  Key points: <short, comma-separated>
+`;
+
+export async function answerBehavioralQuestions(
+  userId: string,
+  jobId: number,
+  resumeId: number,
+  resumeSource: "resume" | "interview_resume",
+  questions: string[] | string
+): Promise<{ content: string; provider: string; model?: string; questionCount: number }> {
+  const job = await storage.getJob(jobId, userId);
+  if (!job) throw new Error("Job not found");
+
+  const candidateProfile =
+    resumeSource === "resume"
+      ? await storage.getResume(resumeId, userId)
+      : await storage.getInterviewResume(resumeId, userId);
+  if (!candidateProfile) throw new Error("Resume not found");
+
+  const questionList = normalizeQuestions(questions);
+  if (questionList.length === 0) {
+    throw new Error("No questions provided");
+  }
+
+  const interviewPrepProviderSetting = await storage.getSetting("interview_prep_ai_provider", userId);
+  const providerOverride = interviewPrepProviderSetting?.value || undefined;
+
+  const jobDescription = job.description;
+  const candidateText = (candidateProfile as { rawContent: string }).rawContent;
+
+  const extracted = await extractContextFromJobAndResume(jobDescription, candidateText, userId, providerOverride);
+
+  const userMessage = `=== CANDIDATE PROFILE (resume) ===
+${candidateText}
+
+=== JOB DESCRIPTION ===
+${jobDescription}
+
+=== CONTEXT ===
+role_type: ${extracted.role_type}
+seniority: ${extracted.seniority}
+company_type: ${extracted.company_type}
+
+=== QUESTIONS TO ANSWER (behavioral / company-alignment focus) ===
+Read the resume and job description above carefully. For each question below, craft a behavioral answer that highlights soft skills, collaboration, leadership, and alignment with what this company values. Use real experiences from the resume.
+
+${questionList.map((q, i) => `${i + 1}) ${q}`).join("\n")}
+`;
+
+  const result = await callAIWithFallback(
+    [
+      { role: "system", content: BEHAVIORAL_ANSWER_SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
+    "sonar-pro",
+    userId,
+    providerOverride
+  );
+
+  if (!result || !result.content.trim()) {
+    throw new Error("AI did not return behavioral answers. Try again or another provider.");
+  }
+
+  const content = stripMarkdownSymbols(result.content.trim());
+  return { content, provider: result.provider, model: result.model, questionCount: questionList.length };
+}
+
 const SIMPLIFY_ANSWERS_SYSTEM_PROMPT = `You are a plain-language interview coach.
 
 You will receive interview answers that are too technical or jargon-heavy.
