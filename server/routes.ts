@@ -876,6 +876,39 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/interview-preps/answer-behavioral", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const { jobId, resumeId, source, questions, questionsText } = req.body;
+
+      if (jobId == null || resumeId == null || !source || (!questions && !questionsText)) {
+        return res.status(400).json({
+          error: "jobId, resumeId, source, and questions or questionsText are required",
+        });
+      }
+      if (source !== "resume" && source !== "interview_resume") {
+        return res.status(400).json({ error: "source must be resume or interview_resume" });
+      }
+
+      const { answerBehavioralQuestions } = await import("./interview-prep");
+      const result = await answerBehavioralQuestions(
+        userId,
+        Number(jobId),
+        Number(resumeId),
+        source,
+        (questionsText as string) ?? (questions as string[])
+      );
+      res.status(200).json(result);
+    } catch (error) {
+      console.error("Error answering behavioral questions:", error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Failed to answer behavioral questions",
+        });
+      }
+    }
+  });
+
   app.post("/api/interview-preps/simplify", requireAuth, async (req, res) => {
     try {
       const userId = getUserIdFromRequest(req);
