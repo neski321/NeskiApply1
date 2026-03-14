@@ -8,8 +8,8 @@ import { addDays } from "date-fns";
  */
 const PERPLEXITY_DAILY_LIMIT = 200;
 const PERPLEXITY_MINUTE_LIMIT = 5;
-const GEMINI_DAILY_LIMIT = 20; // Free tier: gemini-2.5-flash has ~20 requests/day (reduced from ~250 in 2025)
-const GEMINI_MINUTE_LIMIT = 2; // Free tier: gemini-1.5-pro has 2 requests/minute, flash models are more lenient but daily limit is the constraint
+const GEMINI_DAILY_LIMIT = 250; // Free tier: gemini-2.5-flash has 250 requests/day (as of Dec 2025+)
+const GEMINI_MINUTE_LIMIT = 10; // Free tier: gemini-2.5-flash has 10 requests/minute
 const OPENROUTER_DAILY_LIMIT = 50; // Free tier strict limit (50 requests/day)
 const OPENROUTER_MINUTE_LIMIT = 20; // OpenRouter rate limit (20 requests/minute)
 const JSEARCH_DAILY_LIMIT = 10; // User's limit: 10 jobs per day

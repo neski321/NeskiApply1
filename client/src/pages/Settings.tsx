@@ -1168,6 +1168,7 @@ export default function Settings() {
                       <option value="sonar">Sonar - Fast (Free tier)</option>
                       <option value="sonar-pro">Sonar Pro - Best Quality (Uses credits)</option>
                       <option value="sonar-reasoning">Sonar Reasoning - Advanced (Uses credits)</option>
+                      <option value="sonar-reasoning-pro">Sonar Reasoning Pro - Deep Analysis (Uses credits)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -1212,7 +1213,7 @@ export default function Settings() {
                       >
                         Google AI Studio
                       </a>
-                      {" "}and click "Create API Key". Free tier includes generous usage limits. You'll need a Google account to access.
+                      {" "}and click "Create API Key". Free tier: 250 requests/day, 10 requests/minute for Flash models. You'll need a Google account to access.
                     </p>
                   </div>
                 </div>
@@ -1228,10 +1229,11 @@ export default function Settings() {
                       onChange={(e) => setFormData({ ...formData, geminiModel: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash - Fast (Free tier)</option>
-                      <option value="gemini-2.5-pro">Gemini 2.5 Pro - Best Quality (Uses credits)</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash - Fast (Free tier, 250 RPD)</option>
+                      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite - Lightweight (Free tier, 1000 RPD)</option>
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro - Best Quality (Paid only)</option>
                       <option value="gemini-1.5-flash">Gemini 1.5 Flash - Fast (Free tier)</option>
-                      <option value="gemini-1.5-pro">Gemini 1.5 Pro - High Quality (Uses credits)</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro - High Quality (Paid)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
@@ -1291,6 +1293,8 @@ export default function Settings() {
                       <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct - Multilingual (128K context)</option>
                       <option value="google/gemma-3-4b-it:free">Gemma 3 4B - Multimodal (128K context)</option>
                       <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B - Efficient (32K context)</option>
+                      <option value="google/gemma-3-12b-it:free">Gemma 3 12B - Multimodal (128K context)</option>
+                      <option value="google/gemma-3-27b-it:free">Gemma 3 27B - Multimodal, Strong Reasoning (128K context)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">

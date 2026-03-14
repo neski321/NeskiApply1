@@ -478,6 +478,8 @@ const AVAILABLE_OPENROUTER_MODELS = [
   "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-4b-it:free",
   "google/gemma-3n-e2b-it:free",
+  "google/gemma-3-12b-it:free",
+  "google/gemma-3-27b-it:free",
 ];
 
 /**
