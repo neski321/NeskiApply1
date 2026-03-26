@@ -25,6 +25,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 
 export default function JobFeed() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -220,7 +225,20 @@ export default function JobFeed() {
     <Layout>
       <div className="flex flex-col gap-4 md:gap-6 h-full w-full">
         <div className="flex flex-col gap-4">
-          <h1 className="text-xl sm:text-2xl font-bold">Job Feed</h1>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <h1 className="text-xl sm:text-2xl font-bold">Job Feed</h1>
+            <Tabs 
+              value={appliedFilter} 
+              onValueChange={(v) => setAppliedFilter(v as any)} 
+              className="w-full md:w-auto"
+            >
+              <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
+                <TabsTrigger value="unapplied">To Apply</TabsTrigger>
+                <TabsTrigger value="applied">Applied</TabsTrigger>
+                <TabsTrigger value="all">All Jobs</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           <InvalidAPIKeyNotification />
           <ZeroScoreJobsNotification />
           <UntitledJobsNotification onFilterUntitled={() => setUntitledOnly(true)} />
@@ -314,19 +332,6 @@ export default function JobFeed() {
                     </Select>
                   </div>
 
-                  <div>
-                    <h4 className="font-medium mb-2">Applied Status</h4>
-                    <Select value={appliedFilter} onValueChange={setAppliedFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All jobs" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unapplied">Not Applied (Default)</SelectItem>
-                        <SelectItem value="applied">Applied Only</SelectItem>
-                        <SelectItem value="all">All Jobs</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
 
                   <div className="flex items-center space-x-2">
                     <Checkbox

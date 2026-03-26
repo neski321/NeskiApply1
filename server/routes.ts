@@ -3009,7 +3009,7 @@ export async function registerRoutes(
           return {
             ...optimized,
             originalResume: resume ? { id: resume.id, name: resume.name } : null,
-            job: job ? { id: job.id, title: job.title, company: job.company } : null,
+            job: job ? { id: job.id, title: job.title, company: job.company, url: job.url } : null,
           };
         })
       );
