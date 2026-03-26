@@ -822,6 +822,7 @@ export interface OptimizeResumeResponse {
     id: number;
     title: string;
     company: string;
+    url?: string | null;
   };
   atsAnalysis: {
     id: number;
@@ -861,7 +862,7 @@ export interface SavedOptimizedResume {
   improved: boolean;
   createdAt: string;
   originalResume?: { id: number; name: string } | null;
-  job?: { id: number; title: string; company: string } | null;
+  job?: { id: number; title: string; company: string; url?: string | null } | null;
 }
 
 export async function optimizeResume(resumeId: number, jobId: number, atsAnalysisId?: number): Promise<OptimizeResumeResponse> {

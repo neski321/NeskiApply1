@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2, Sparkles, Calendar, TrendingUp, TrendingDown, CheckCircle2, File } from "lucide-react";
+import { FileText, Upload, MoreVertical, Download, Plus, FileUp, Edit, Trash2, Sparkles, Calendar, TrendingUp, TrendingDown, CheckCircle2, File, ExternalLink, Brain, ChevronUp, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getResumes, createResume, updateResume, deleteResume, uploadResumeFile, getOptimizedResumes, deleteOptimizedResume, downloadOptimizedResume, getResume, type SavedOptimizedResume } from "@/lib/api";
@@ -33,7 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Resume } from "@shared/schema";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Brain, ChevronDown, ChevronUp } from "lucide-react";
+
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useLocation } from "wouter";
 
@@ -84,18 +84,26 @@ export default function Resumes() {
 
   const { data: resumes = [], isLoading } = useQuery({
     queryKey: ["resumes"],
-    queryFn: getResumes,
+    queryFn: () => getResumes(),
   });
 
   const { data: optimizedResumes = [], isLoading: isLoadingOptimized } = useQuery({
     queryKey: ["optimizedResumes"],
-    queryFn: getOptimizedResumes,
+    queryFn: () => getOptimizedResumes(),
   });
 
   const deleteOptimizedMutation = useMutation({
     mutationFn: deleteOptimizedResume,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["optimizedResumes"] });
+      // Invalidate specific job query if we know which one it was
+      if (deletingOptimizedResume?.jobId) {
+        queryClient.invalidateQueries({ queryKey: ["optimizedResumes", deletingOptimizedResume.jobId] });
+      }
+      // Invalidate jobs lists to update "Optimized" badges
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["interviewJobs"] });
+      
       setDeletingOptimizedResume(null); // Close dialog
       toast({
         title: "Optimized resume deleted",
@@ -232,7 +240,7 @@ export default function Resumes() {
     if (editingResume) {
       updateMutation.mutate({ id: editingResume.id, data: resumeData });
     } else {
-      createMutation.mutate(resumeData);
+      createMutation.mutate(resumeData as any);
     }
   };
 
@@ -800,8 +808,22 @@ function OptimizedResumeCard({
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <h3 className="font-semibold text-base mb-1">
-              {optimized.job ? `${optimized.job.title} - ${optimized.job.company}` : "Loading job..."}
+            <h3 className="font-semibold text-base mb-1 flex items-center gap-2 group-hover:text-primary transition-colors">
+              <span className="truncate flex-1">
+                {optimized.job ? `${optimized.job.title} - ${optimized.job.company}` : "Loading job..."}
+              </span>
+              {optimized.job?.url && (
+                <a 
+                  href={optimized.job.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/50 text-muted-foreground hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
+                  title="View original job posting"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              )}
             </h3>
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
               <FileText className="h-3 w-3" />
@@ -927,8 +949,19 @@ function OptimizedResumeViewModal({
                 View your optimized resume for {optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "this job"}
               </DialogDescription>
               <div className="mt-2 space-y-1 min-w-0">
-                <div className="text-xs sm:text-sm break-words">
-                  <span className="font-medium">Job:</span> {optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "Loading..."}
+                <div className="text-xs sm:text-sm break-words flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">Job:</span> 
+                  <span>{optimized.job ? `${optimized.job.title} at ${optimized.job.company}` : "Loading..."}</span>
+                  {optimized.job?.url && (
+                    <a 
+                      href={optimized.job.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline font-medium text-xs ml-auto sm:ml-0"
+                    >
+                      View Posting <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
                   <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
