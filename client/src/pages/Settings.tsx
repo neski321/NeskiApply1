@@ -19,9 +19,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2 } from "lucide-react";
+import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2, Trash2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings } from "@/lib/api";
+import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings, cleanupJobs } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -38,6 +38,9 @@ export default function Settings() {
     return true;
   });
   const [showCronConfirm, setShowCronConfirm] = useState(false);
+  const [manualCleanupDays, setManualCleanupDays] = useState("15");
+  const [manualCleanupOnlyUnapplied, setManualCleanupOnlyUnapplied] = useState(true);
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
   const [requiredSettingsStatus, setRequiredSettingsStatus] = useState<{
     configured: boolean;
     missing: string[];
@@ -62,6 +65,8 @@ export default function Settings() {
     cronEnabled: false,
     cronScheduleTime: "09:00",
     cronTimezone: "America/Toronto",
+    autoCleanupEnabled: true,
+    jobCleanupRetentionDays: "30",
     reminderEnabled: false,
     reminderTime: "16:00",
     reminderMatchThreshold: "70",
@@ -189,6 +194,8 @@ export default function Settings() {
         cronEnabled: settingsMap.cron_enabled === "true",
         cronScheduleTime: settingsMap.cron_schedule_time || "09:00",
         cronTimezone: settingsMap.cron_timezone || "America/Toronto",
+        autoCleanupEnabled: settingsMap.auto_cleanup_enabled !== "false",
+        jobCleanupRetentionDays: settingsMap.job_cleanup_retention_days || "30",
         reminderEnabled: settingsMap.reminder_enabled === "true",
         reminderTime: settingsMap.reminder_time || "16:00",
         reminderMatchThreshold: settingsMap.reminder_match_threshold || "70",
@@ -282,6 +289,8 @@ export default function Settings() {
       original.cronEnabled !== current.cronEnabled ||
       original.cronScheduleTime !== current.cronScheduleTime ||
       original.cronTimezone !== current.cronTimezone ||
+      original.autoCleanupEnabled !== current.autoCleanupEnabled ||
+      original.jobCleanupRetentionDays !== current.jobCleanupRetentionDays ||
       original.reminderEnabled !== current.reminderEnabled ||
       original.reminderTime !== current.reminderTime ||
       original.reminderMatchThreshold !== current.reminderMatchThreshold ||
@@ -384,6 +393,27 @@ export default function Settings() {
     },
   });
 
+  const cleanupMutation = useMutation({
+    mutationFn: () => cleanupJobs(parseInt(manualCleanupDays, 10), manualCleanupOnlyUnapplied),
+    onSuccess: (data) => {
+      setShowCleanupConfirm(false);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: "Cleanup Complete",
+        description: `Successfully cleared ${data.deletedCount} job${data.deletedCount === 1 ? "" : "s"} and related records.`,
+      });
+    },
+    onError: (error: Error) => {
+      setShowCleanupConfirm(false);
+      toast({
+        title: "Cleanup Failed",
+        description: error.message || "Failed to clear old jobs.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const discordTestMutation = useMutation({
     mutationFn: testDiscordWebhook,
     onSuccess: (data) => {
@@ -479,6 +509,8 @@ export default function Settings() {
       cron_enabled: formData.cronEnabled.toString(),
       cron_schedule_time: formData.cronScheduleTime,
       cron_timezone: formData.cronTimezone,
+      auto_cleanup_enabled: formData.autoCleanupEnabled.toString(),
+      job_cleanup_retention_days: formData.jobCleanupRetentionDays,
       reminder_enabled: formData.reminderEnabled.toString(),
       reminder_time: formData.reminderTime,
       reminder_match_threshold: formData.reminderMatchThreshold,
@@ -1721,6 +1753,160 @@ export default function Settings() {
                   </div>
                 </div>
               </CardContent>
+            </Card>
+
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                  Database Cleanup & Retention
+                </CardTitle>
+                <CardDescription>
+                  Manage database storage by clearing old job listings and their associated data (ATS analyses, optimized resumes, and interview preps).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Automatic Cleanup Section */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-foreground border-b border-border/50 pb-2">Automatic Daily Cleanup</h3>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                      <Label className="text-base">Enable Automatic Cleanup</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically clean up old unapplied jobs daily at 2:00 AM.
+                      </p>
+                    </div>
+                    <Switch 
+                      checked={formData.autoCleanupEnabled}
+                      onCheckedChange={(checked) => setFormData({ ...formData, autoCleanupEnabled: checked })}
+                    />
+                  </div>
+
+                  <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${!formData.autoCleanupEnabled ? "opacity-50 pointer-events-none" : ""}`}>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        Retention Period (Days)
+                        <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Default: 30</span>
+                      </Label>
+                      <Input 
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={formData.jobCleanupRetentionDays}
+                        onChange={(e) => setFormData({ ...formData, jobCleanupRetentionDays: e.target.value })}
+                        disabled={!formData.autoCleanupEnabled}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Jobs older than this number of days will be automatically deleted.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual Cleanup Section */}
+                <div className="pt-4 border-t border-border/50 space-y-4">
+                  <h3 className="text-sm font-semibold text-foreground border-b border-border/50 pb-2">Manual Database Cleanup</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        Job Age Threshold
+                      </Label>
+                      <select
+                        value={manualCleanupDays}
+                        onChange={(e) => setManualCleanupDays(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <option value="7">Older than 7 days</option>
+                        <option value="15">Older than 15 days</option>
+                        <option value="30">Older than 30 days</option>
+                        <option value="60">Older than 60 days</option>
+                        <option value="90">Older than 90 days</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        Select the cut-off age for jobs to be deleted.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 flex flex-col justify-end">
+                      <div className="flex items-center justify-between h-10">
+                        <div className="space-y-0.5 flex-1 pr-4">
+                          <Label className="text-sm font-medium">Only Unapplied Jobs</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Keep applied jobs to preserve application history.
+                          </p>
+                        </div>
+                        <Switch 
+                          checked={manualCleanupOnlyUnapplied}
+                          onCheckedChange={setManualCleanupOnlyUnapplied}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => setShowCleanupConfirm(true)}
+                      disabled={cleanupMutation.isPending}
+                      className="gap-2"
+                    >
+                      {cleanupMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Cleaning Up...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="h-4 w-4" />
+                          Run Database Cleanup Now
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+
+              {/* Confirmation Alert Dialog */}
+              <AlertDialog open={showCleanupConfirm} onOpenChange={setShowCleanupConfirm}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-destructive flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5" />
+                      Confirm Database Cleanup
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-2">
+                      <p>
+                        Are you sure you want to delete jobs older than <strong>{manualCleanupDays} days</strong>?
+                      </p>
+                      <p className="text-sm font-semibold text-destructive">
+                        {manualCleanupOnlyUnapplied 
+                          ? "This will permanently delete all unapplied jobs older than the threshold, including their associated ATS analyses and optimized resumes."
+                          : "CRITICAL: This will permanently delete ALL jobs (both applied and unapplied) older than the threshold, along with all associated ATS analyses, optimized resumes, and interview practice preps."
+                        }
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        This action cannot be undone. Any active scraping will log newly found jobs normally.
+                      </p>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={cleanupMutation.isPending}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault();
+                        cleanupMutation.mutate();
+                      }}
+                      disabled={cleanupMutation.isPending}
+                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                    >
+                      {cleanupMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </Card>
 
             <Card className="bg-card/50 border-border/50">

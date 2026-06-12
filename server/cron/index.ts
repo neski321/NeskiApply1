@@ -338,8 +338,23 @@ export async function executeJobCleanup(userId: string): Promise<{
   deletedCount?: number;
 }> {
   try {
-    // Delete jobs that are 30+ days old and haven't been applied to
-    const deletedCount = await storage.deleteOldUnappliedJobs(userId, 30);
+    // Get auto cleanup settings for this user
+    const autoCleanupEnabledSetting = await storage.getSetting("auto_cleanup_enabled", userId);
+    const autoCleanupEnabled = autoCleanupEnabledSetting ? autoCleanupEnabledSetting.value === "true" : true; // Default to true for backward compatibility
+
+    if (!autoCleanupEnabled) {
+      return {
+        success: true,
+        message: "Automatic job cleanup is disabled",
+        deletedCount: 0,
+      };
+    }
+
+    const retentionDaysSetting = await storage.getSetting("job_cleanup_retention_days", userId);
+    const daysOld = retentionDaysSetting ? parseInt(retentionDaysSetting.value, 10) : 30; // Default to 30
+
+    // Delete jobs that are daysOld+ days old and haven't been applied to
+    const deletedCount = await storage.deleteOldJobs(userId, daysOld, true);
     
     // Clean up old deleted_jobs records (older than 14 days)
     const deletedJobsCleanupCount = await storage.deleteOldDeletedJobs(userId, 14);
@@ -347,9 +362,9 @@ export async function executeJobCleanup(userId: string): Promise<{
     // Always log cleanup activity, even if nothing was deleted
     await activityLogger.info(
       deletedCount > 0
-        ? `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (30+ days old)`
-        : `Job cleanup completed: No old unapplied jobs found (30+ days old)`,
-      { deletedCount, deletedJobsCleanupCount, cleanupType: "old_unapplied_jobs" },
+        ? `Cleaned up ${deletedCount} old unapplied job${deletedCount === 1 ? '' : 's'} (${daysOld}+ days old)`
+        : `Job cleanup completed: No old unapplied jobs found (${daysOld}+ days old)`,
+      { deletedCount, deletedJobsCleanupCount, daysOld, cleanupType: "old_unapplied_jobs" },
       userId
     );
     

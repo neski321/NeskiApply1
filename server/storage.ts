@@ -72,6 +72,7 @@ export interface IStorage {
   updateJob(id: number, job: Partial<InsertJob>, userId: string): Promise<Job | undefined>;
   deleteJob(id: number, userId: string, expired?: boolean, reason?: string): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
+  deleteOldJobs(userId: string, daysOld: number, onlyUnapplied: boolean): Promise<number>;
   deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number>;
   getDeletedJobs(userId: string, reason?: string): Promise<DeletedJob[]>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
@@ -343,25 +344,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number> {
-    // Calculate the cutoff date (30 days ago)
+    return await this.deleteOldJobs(userId, daysOld, true);
+  }
+
+  async deleteOldJobs(userId: string, daysOld: number, onlyUnapplied: boolean): Promise<number> {
+    // Calculate the cutoff date
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
     cutoffDate.setHours(0, 0, 0, 0); // Set to start of day for consistent comparison
+    
+    const conditions: any[] = [
+      eq(jobs.userId, userId),
+      lt(jobs.createdAt, cutoffDate)
+    ];
+    
+    if (onlyUnapplied) {
+      conditions.push(or(eq(jobs.isApplied, false), isNull(jobs.isApplied)));
+    }
     
     // Get jobs that will be deleted to log them first
     const jobsToDelete = await db
       .select()
       .from(jobs)
-      .where(
-        and(
-          eq(jobs.userId, userId),
-          lt(jobs.createdAt, cutoffDate),
-          or(
-            eq(jobs.isApplied, false),
-            isNull(jobs.isApplied)
-          )
-        )
-      );
+      .where(and(...conditions));
     
     // Log deleted jobs to prevent re-adding during scans/ingestion
     if (jobsToDelete.length > 0) {
@@ -371,8 +376,8 @@ export class DatabaseStorage implements IStorage {
         url: job.url || null,
         title: this.normalizeText(job.title),
         company: this.normalizeText(job.company),
-        reason: "old_unapplied",
-        isExpired: false, // Old unapplied jobs are not expired, so they shouldn't be re-added
+        reason: onlyUnapplied ? "old_unapplied" : "auto_cleanup",
+        isExpired: false, // Old deleted jobs are not expired, so they shouldn't be re-added
       }));
       
       // Insert in batches to avoid issues with large arrays
@@ -395,22 +400,10 @@ export class DatabaseStorage implements IStorage {
       }
     }
     
-    // Delete jobs that:
-    // 1. Belong to this user
-    // 2. Were created more than `daysOld` days ago
-    // 3. Have not been applied to (isApplied = false or null)
+    // Delete jobs
     const result = await db
       .delete(jobs)
-      .where(
-        and(
-          eq(jobs.userId, userId),
-          lt(jobs.createdAt, cutoffDate),
-          or(
-            eq(jobs.isApplied, false),
-            isNull(jobs.isApplied)
-          )
-        )
-      );
+      .where(and(...conditions));
     
     return result.rowCount || 0;
   }

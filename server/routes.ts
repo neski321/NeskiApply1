@@ -1260,6 +1260,35 @@ export async function registerRoutes(
     }
   });
 
+  // Batch delete old jobs
+  app.post("/api/jobs/cleanup", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+      const days = req.body?.days != null ? parseInt(req.body.days, 10) : 15;
+      const onlyUnapplied = req.body?.onlyUnapplied !== false; // Default to true if not explicitly false
+
+      if (isNaN(days) || days < 0) {
+        return res.status(400).json({ error: "Invalid days parameter" });
+      }
+
+      const deletedCount = await storage.deleteOldJobs(userId, days, onlyUnapplied);
+
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        `Database cleanup executed: cleared ${deletedCount} job${deletedCount === 1 ? "" : "s"} older than ${days} days (${
+          onlyUnapplied ? "unapplied only" : "all jobs"
+        })`,
+        { days, onlyUnapplied, deletedCount },
+        userId
+      );
+
+      res.json({ success: true, deletedCount });
+    } catch (error) {
+      console.error("Error cleaning up old jobs:", error);
+      res.status(500).json({ error: "Failed to perform database cleanup" });
+    }
+  });
+
   // ============ ATS ANALYSIS API ============
   
   // Analyze job description against resumes
