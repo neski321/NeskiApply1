@@ -364,6 +364,20 @@ export async function deleteJob(id: number, expired: boolean = false, reason?: s
   }
 }
 
+export async function cleanupJobs(days: number, onlyUnapplied: boolean): Promise<{ success: boolean; deletedCount: number }> {
+  const response = await fetch("/api/jobs/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ days, onlyUnapplied }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to run database cleanup" }));
+    throw new Error(error.error || "Failed to run database cleanup");
+  }
+  return response.json();
+}
+
 // ============ ATS ANALYSIS API ============
 
 export async function analyzeJob(data: {

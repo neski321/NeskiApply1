@@ -10,7 +10,8 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "fix:untitled-jobs": "tsx script/fix-untitled-jobs.ts"
+    "fix:untitled-jobs": "tsx script/fix-untitled-jobs.ts",
+    "db:cleanup": "tsx script/clear-old-jobs.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
