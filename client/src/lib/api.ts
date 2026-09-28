@@ -829,7 +829,7 @@ export interface OptimizedResume {
   }>;
   changes: Array<{
     section: string;
-    type: "summary_rewritten" | "bullets_reordered" | "content_restructured";
+    type: "summary_rewritten" | "bullets_reordered" | "content_restructured" | "keywords_added" | "skills_added" | "experience_bullets_added" | "content_removed_for_relevance";
     description: string;
   }>;
 }
