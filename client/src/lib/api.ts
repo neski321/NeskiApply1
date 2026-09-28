@@ -378,6 +378,19 @@ export async function cleanupJobs(days: number, onlyUnapplied: boolean): Promise
   return response.json();
 }
 
+export async function cleanupUnscannedJobs(): Promise<{ success: boolean; deletedCount: number }> {
+  const response = await fetch("/api/jobs/cleanup-unscanned", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Failed to clean up unscanned jobs" }));
+    throw new Error(error.error || "Failed to clean up unscanned jobs");
+  }
+  return response.json();
+}
+
 // ============ ATS ANALYSIS API ============
 
 export async function analyzeJob(data: {

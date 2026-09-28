@@ -1289,6 +1289,27 @@ export async function registerRoutes(
     }
   });
 
+  // Delete all unscanned jobs (jobs without match scores)
+  app.post("/api/jobs/cleanup-unscanned", requireAuth, async (req, res) => {
+    try {
+      const userId = getUserIdFromRequest(req);
+
+      const deletedCount = await storage.deleteUnscannedJobs(userId);
+
+      const { activityLogger } = await import("./logger");
+      await activityLogger.info(
+        `Unscanned jobs cleanup executed: cleared ${deletedCount} unscanned job${deletedCount === 1 ? "" : "s"} from the database`,
+        { deletedCount },
+        userId
+      );
+
+      res.json({ success: true, deletedCount });
+    } catch (error) {
+      console.error("Error cleaning up unscanned jobs:", error);
+      res.status(500).json({ error: "Failed to clean up unscanned jobs" });
+    }
+  });
+
   // ============ ATS ANALYSIS API ============
   
   // Analyze job description against resumes

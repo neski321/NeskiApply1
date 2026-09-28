@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Save, Check, Play, AlertCircle, CheckCircle2, ExternalLink, Info, X, Loader2, Trash2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings, cleanupJobs } from "@/lib/api";
+import { getSettings, setSetting, setSettingsBatch, triggerCronJob, testDiscordWebhook, testReminder, rescheduleCronJob, checkRequiredSettings, cleanupJobs, cleanupUnscannedJobs, getUnscannedJobsCount } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -41,6 +41,7 @@ export default function Settings() {
   const [manualCleanupDays, setManualCleanupDays] = useState("15");
   const [manualCleanupOnlyUnapplied, setManualCleanupOnlyUnapplied] = useState(true);
   const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
+  const [showUnscannedCleanupConfirm, setShowUnscannedCleanupConfirm] = useState(false);
   const [requiredSettingsStatus, setRequiredSettingsStatus] = useState<{
     configured: boolean;
     missing: string[];
@@ -409,6 +410,33 @@ export default function Settings() {
       toast({
         title: "Cleanup Failed",
         description: error.message || "Failed to clear old jobs.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { data: unscannedData } = useQuery({
+    queryKey: ["unscannedJobsCount"],
+    queryFn: getUnscannedJobsCount,
+  });
+
+  const unscannedCleanupMutation = useMutation({
+    mutationFn: () => cleanupUnscannedJobs(),
+    onSuccess: (data) => {
+      setShowUnscannedCleanupConfirm(false);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["unscannedJobsCount"] });
+      toast({
+        title: "Unscanned Jobs Removed",
+        description: `Successfully removed ${data.deletedCount} unscanned job${data.deletedCount === 1 ? "" : "s"} from the database.`,
+      });
+    },
+    onError: (error: Error) => {
+      setShowUnscannedCleanupConfirm(false);
+      toast({
+        title: "Cleanup Failed",
+        description: error.message || "Failed to remove unscanned jobs.",
         variant: "destructive",
       });
     },
@@ -1867,6 +1895,50 @@ export default function Settings() {
                     </Button>
                   </div>
                 </div>
+
+                {/* Unscanned Jobs Cleanup Section */}
+                <div className="pt-4 border-t border-border/50 space-y-4">
+                  <h3 className="text-sm font-semibold text-foreground border-b border-border/50 pb-2">Remove Unscanned Jobs</h3>
+                  
+                  <div className="p-4 bg-muted/50 rounded-lg border border-border/50">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Unscanned jobs</strong> are jobs that were scraped but never matched against your resume (no match score). 
+                      Removing them helps keep your database clean and reduces clutter.
+                    </p>
+                    {unscannedData && unscannedData.count > 0 && (
+                      <p className="text-sm font-medium text-amber-500 mt-2">
+                        You currently have <strong>{unscannedData.count}</strong> unscanned job{unscannedData.count === 1 ? "" : "s"} in the database.
+                      </p>
+                    )}
+                    {unscannedData && unscannedData.count === 0 && (
+                      <p className="text-sm font-medium text-emerald-500 mt-2">
+                        ✓ No unscanned jobs found. Your database is clean!
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => setShowUnscannedCleanupConfirm(true)}
+                      disabled={unscannedCleanupMutation.isPending || !unscannedData || unscannedData.count === 0}
+                      className="gap-2"
+                    >
+                      {unscannedCleanupMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Removing...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="h-4 w-4" />
+                          Remove All Unscanned Jobs{unscannedData && unscannedData.count > 0 ? ` (${unscannedData.count})` : ""}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
 
               {/* Confirmation Alert Dialog */}
@@ -1903,6 +1975,42 @@ export default function Settings() {
                       className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                     >
                       {cleanupMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              {/* Unscanned Cleanup Confirmation Dialog */}
+              <AlertDialog open={showUnscannedCleanupConfirm} onOpenChange={setShowUnscannedCleanupConfirm}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-destructive flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5" />
+                      Remove All Unscanned Jobs
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-2">
+                      <p>
+                        Are you sure you want to remove <strong>{unscannedData?.count || 0} unscanned job{(unscannedData?.count || 0) === 1 ? "" : "s"}</strong> from the database?
+                      </p>
+                      <p className="text-sm font-semibold text-destructive">
+                        This will permanently delete all jobs that have no match score, along with any associated ATS analyses, optimized resumes, and interview preps.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        This action cannot be undone. Deleted jobs will be logged to prevent re-scraping.
+                      </p>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={unscannedCleanupMutation.isPending}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault();
+                        unscannedCleanupMutation.mutate();
+                      }}
+                      disabled={unscannedCleanupMutation.isPending}
+                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                    >
+                      {unscannedCleanupMutation.isPending ? "Deleting..." : "Confirm Delete"}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>

@@ -73,6 +73,7 @@ export interface IStorage {
   deleteJob(id: number, userId: string, expired?: boolean, reason?: string): Promise<boolean>;
   deleteOldUnappliedJobs(userId: string, daysOld: number): Promise<number>;
   deleteOldJobs(userId: string, daysOld: number, onlyUnapplied: boolean): Promise<number>;
+  deleteUnscannedJobs(userId: string): Promise<number>;
   deleteOldDeletedJobs(userId: string, daysOld: number): Promise<number>;
   getDeletedJobs(userId: string, reason?: string): Promise<DeletedJob[]>;
   upsertJobByExternalId(job: InsertJob, userId: string): Promise<{ job: Job; wasInserted: boolean }>;
@@ -405,6 +406,55 @@ export class DatabaseStorage implements IStorage {
       .delete(jobs)
       .where(and(...conditions));
     
+    return result.rowCount || 0;
+  }
+
+  async deleteUnscannedJobs(userId: string): Promise<number> {
+    // Find all jobs where matchScore is null (never scanned/matched)
+    const conditions = [
+      eq(jobs.userId, userId),
+      isNull(jobs.matchScore),
+    ];
+
+    // Get jobs that will be deleted to log them first
+    const jobsToDelete = await db
+      .select()
+      .from(jobs)
+      .where(and(...conditions));
+
+    // Log deleted jobs to prevent re-adding during scans/ingestion
+    if (jobsToDelete.length > 0) {
+      const deletedJobEntries: InsertDeletedJob[] = jobsToDelete.map(job => ({
+        userId,
+        externalId: job.externalId || null,
+        url: job.url || null,
+        title: this.normalizeText(job.title),
+        company: this.normalizeText(job.company),
+        reason: "unscanned_cleanup",
+        isExpired: false,
+      }));
+
+      for (const deletedJob of deletedJobEntries) {
+        try {
+          await db.insert(deletedJobs).values(deletedJob);
+        } catch (error: any) {
+          if (error?.code === '42703' || error?.message?.includes('does not exist')) {
+            const { isExpired, ...deletedJobWithoutExpired } = deletedJob;
+            await db.insert(deletedJobs).values(deletedJobWithoutExpired as any).catch((fallbackError) => {
+              console.error("Failed to log deleted job:", fallbackError);
+            });
+          } else {
+            console.error("Failed to log deleted job:", error);
+          }
+        }
+      }
+    }
+
+    // Delete the unscanned jobs
+    const result = await db
+      .delete(jobs)
+      .where(and(...conditions));
+
     return result.rowCount || 0;
   }
 
