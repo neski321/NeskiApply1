@@ -17,7 +17,7 @@ export interface OptimizedResume {
   }>;
   changes: Array<{
     section: string;
-    type: "summary_rewritten" | "bullets_reordered" | "content_restructured" | "keywords_added";
+    type: "summary_rewritten" | "bullets_reordered" | "content_restructured" | "keywords_added" | "skills_added" | "experience_bullets_added" | "content_removed_for_relevance";
     description: string;
   }>;
 }
@@ -57,24 +57,24 @@ export async function analyzeOptimizedResume(
     // Get user's AI provider preference for ATS analysis
     const aiProviderPreference = await storage.getSetting("ai_provider_preference", userId);
     const providerOverride = aiProviderPreference?.value || "auto";
-    
+
     // Check if at least one AI API key is configured
     const perplexityKey = await storage.getSetting("perplexity_api_key", userId);
     const geminiKey = await storage.getSetting("gemini_api_key", userId);
     const openrouterKey = await storage.getSetting("openrouter_api_key", userId);
-    
-    if ((!perplexityKey || !perplexityKey.value) && 
-        (!geminiKey || !geminiKey.value) && 
-        (!openrouterKey || !openrouterKey.value)) {
+
+    if ((!perplexityKey || !perplexityKey.value) &&
+      (!geminiKey || !geminiKey.value) &&
+      (!openrouterKey || !openrouterKey.value)) {
       throw new Error("At least one AI API key (Perplexity, Gemini, or OpenRouter) is required for ATS analysis");
     }
 
     // Convert optimized resume to a format that can be analyzed
     // Create a temporary resume-like object with optimized content
-    const technicalSkillsText = typeof optimizedResume.technicalSkills === 'string' 
-      ? optimizedResume.technicalSkills 
+    const technicalSkillsText = typeof optimizedResume.technicalSkills === 'string'
+      ? optimizedResume.technicalSkills
       : optimizedResume.technicalSkills.join(", ");
-    
+
     const optimizedResumeContent = `
 Professional Summary:
 ${optimizedResume.professionalSummary || "Not provided"}
@@ -86,21 +86,21 @@ Education:
 ${optimizedResume.education || "Not provided"}
 
 Relevant Experience:
-${Array.isArray(optimizedResume.relevantExperience) && optimizedResume.relevantExperience.length > 0 
-  ? optimizedResume.relevantExperience.map(exp => 
-      exp && exp.title && exp.company && Array.isArray(exp.bullets)
-        ? `${exp.title} at ${exp.company}\n${exp.bullets.map(b => `  • ${b}`).join("\n")}`
-        : ""
-    ).filter(Boolean).join("\n\n")
-  : "Not provided"}
+${Array.isArray(optimizedResume.relevantExperience) && optimizedResume.relevantExperience.length > 0
+        ? optimizedResume.relevantExperience.map(exp =>
+          exp && exp.title && exp.company && Array.isArray(exp.bullets)
+            ? `${exp.title} at ${exp.company}\n${exp.bullets.map(b => `  • ${b}`).join("\n")}`
+            : ""
+        ).filter(Boolean).join("\n\n")
+        : "Not provided"}
 
 ${optimizedResume.projects && Array.isArray(optimizedResume.projects) && optimizedResume.projects.length > 0 ? `
 Projects:
-${optimizedResume.projects.map(proj => 
-  proj && proj.name && Array.isArray(proj.bullets)
-    ? `${proj.name}\n${proj.bullets.map(b => `  • ${b}`).join("\n")}`
-    : ""
-).filter(Boolean).join("\n\n")}` : ""}
+${optimizedResume.projects.map(proj =>
+          proj && proj.name && Array.isArray(proj.bullets)
+            ? `${proj.name}\n${proj.bullets.map(b => `  • ${b}`).join("\n")}`
+            : ""
+        ).filter(Boolean).join("\n\n")}` : ""}
 `;
 
     // Get resumes active for matching to include in comparison; exclude the original resume (replaced by optimized content).
@@ -121,20 +121,21 @@ ${optimizedResume.projects.map(proj =>
       - actionable resume improvement suggestions.
       
       Scoring priorities (highest → lowest):
-      1) Skills matching (dominant)
-      2) Full-time status
-      3) Date posted (recency)
-      4) Lower experience required
-      5) Pay rate
-      6) Company & location
+      1. Required skills and technologies
+      2. Relevant experience and responsibilities
+      3. Education/certifications
+      4. Domain/industry alignment
+      5. Tools/platforms
+      6. Transferable requirements
+      7. Work arrangement/location compatibility
       
       Weights (total 100):
-      - skills_match: 45
-      - full_time_status: 20
-      - date_posted: 15
-      - experience_requirement: 10
-      - pay_rate: 5
-      - company_location: 5
+      - skills_match: 40
+      - experience_match: 25
+      - requirements_match: 15
+      - education_certifications: 10
+      - domain_tools_match: 5
+      - location_work_arrangement: 5
       
       Rules:
       - Do not infer missing details. If missing/unclear, treat as "unknown" and score conservatively.
@@ -168,13 +169,13 @@ ${optimizedResume.projects.map(proj =>
       Title: ${job.title}
       Company: ${job.company}
       Location: ${job.location}
-      Description: ${job.description.substring(0, 2000)}${job.description.length > 2000 ? "..." : ""}
+      Description: ${job.description.substring(0, 5000)}${job.description.length > 5500 ? "..." : ""}
       ${job.requirements ? `Requirements: ${job.requirements.join(", ")}` : ""}
       
       Resumes:
-      ${allResumes.map(r => 
-        `ID: ${r.id}, Name: ${r.name}, Skills: ${r.skills.join(", ")}, Experience: ${r.experience}, Content: ${r.rawContent.substring(0, 1000)}`
-      ).join("\n\n")}
+      ${allResumes.map(r =>
+          `ID: ${r.id}, Name: ${r.name}, Skills: ${r.skills.join(", ")}, Experience: ${r.experience}, Content: ${r.rawContent.substring(0, 1000)}`
+        ).join("\n\n")}
       
       OPTIMIZED RESUME (ID: ${originalResume.id}):
       Name: ${originalResume.name} (Optimized), Skills: ${typeof optimizedResume.technicalSkills === 'string' ? optimizedResume.technicalSkills : optimizedResume.technicalSkills.join(", ")}, Content: ${optimizedResumeContent.substring(0, 2000)}
@@ -210,7 +211,7 @@ ${optimizedResume.projects.map(proj =>
     // Get model settings for all providers (callAIWithFallback will use the appropriate one)
     const perplexityModelSetting = await storage.getSetting("perplexity_model", userId);
     const perplexityModel = perplexityModelSetting?.value || "sonar-pro";
-    
+
     // Pass the default model - callAIWithFallback will use user's model preferences for each provider
     const aiResult = await callAIWithFallback(messages, perplexityModel, userId, providerOverride);
 
@@ -232,7 +233,7 @@ ${optimizedResume.projects.map(proj =>
     // The optimized resume should be evaluated as the original resume ID
     // Check if it's the best match, or find it in comparisons
     let optimizedResumeScore = coerceScore(analysisResult.matchScore) ?? originalScore;
-    
+
     if (analysisResult.bestResumeId === originalResume.id) {
       // Optimized resume is the best match
       optimizedResumeScore = coerceScore(analysisResult.matchScore) ?? optimizedResumeScore;
@@ -245,7 +246,7 @@ ${optimizedResume.projects.map(proj =>
         optimizedResumeScore = coerceScore(comparison.score) ?? optimizedResumeScore;
       }
     }
-    
+
     // Guardrails: clamp and round to integer for DB storage + consistency
     optimizedResumeScore = Math.max(0, Math.min(100, Math.round(optimizedResumeScore)));
 
@@ -258,6 +259,7 @@ ${optimizedResume.projects.map(proj =>
     // The optimized analysis should only be linked via optimized_resumes.optimizedAnalysisId
     // This prevents it from replacing the original analysis when getATSAnalysisByJobId is called
     const savedAnalysis = await storage.createATSAnalysis({
+      userId,
       jobId: undefined, // Don't link to job - this is an optimized resume analysis
       jobTitle: job.title,
       jobCompany: job.company,
@@ -302,11 +304,11 @@ export async function optimizeResumeForJob(
   let atsContext = "";
   if (analysis && analysis.bestResumeId === resume.id) {
     const missingKeywords = analysis.missingKeywords || [];
-    const suggestions = Array.isArray(analysis.suggestions) 
-      ? analysis.suggestions 
+    const suggestions = Array.isArray(analysis.suggestions)
+      ? analysis.suggestions
       : typeof analysis.suggestions === 'object' && analysis.suggestions !== null
-      ? Object.values(analysis.suggestions)
-      : [];
+        ? Object.values(analysis.suggestions)
+        : [];
 
     atsContext = `
 
@@ -314,16 +316,16 @@ EXISTING ATS ANALYSIS RESULTS (Use these to guide optimization):
 Match Score: ${analysis.matchScore}/100
 Missing Keywords: ${missingKeywords.length > 0 ? missingKeywords.join(", ") : "None identified"}
 Suggestions from ATS Analysis:
-${suggestions.length > 0 
-  ? suggestions.map((s: any, i: number) => 
-      typeof s === 'string' 
-        ? `${i + 1}. ${s}`
-        : s.title 
-        ? `${i + 1}. ${s.title}: ${s.description || ''}`
-        : `${i + 1}. ${JSON.stringify(s)}`
-    ).join("\n")
-  : "No specific suggestions provided"
-}
+${suggestions.length > 0
+        ? suggestions.map((s: any, i: number) =>
+          typeof s === 'string'
+            ? `${i + 1}. ${s}`
+            : s.title
+              ? `${i + 1}. ${s.title}: ${s.description || ''}`
+              : `${i + 1}. ${JSON.stringify(s)}`
+        ).join("\n")
+        : "No specific suggestions provided"
+      }
 
 CRITICAL: You must incorporate the missing keywords into the resume WHERE THEY NATURALLY FIT based on existing content.
 For example, if "React" is missing but the resume mentions "JavaScript frontend development", you can rephrase to include "React" if the experience supports it.
@@ -397,9 +399,9 @@ ${job.requirements ? `Requirements: ${job.requirements.join(", ")}` : ""}${atsCo
 
 ORIGINAL RESUME:
 Name: ${resume.name}
-${resume.technicalSkillsSection 
-  ? `Technical Skills Section (PRESERVE THIS FORMATTING AND LAYOUT):\n${resume.technicalSkillsSection}\n\nExtracted Skills Array: ${resume.skills.join(", ")}`
-  : `Skills: ${resume.skills.join(", ")}`}
+${resume.technicalSkillsSection
+      ? `Technical Skills Section (PRESERVE THIS FORMATTING AND LAYOUT):\n${resume.technicalSkillsSection}\n\nExtracted Skills Array: ${resume.skills.join(", ")}`
+      : `Skills: ${resume.skills.join(", ")}`}
 Experience: ${resume.experience}
 Education: ${resume.education || "Not provided"}
 Raw Content:
@@ -408,8 +410,8 @@ ${resume.rawContent}
 INSTRUCTIONS:
 1. Rewrite the Professional Summary to match the job, using only information from the original resume${analysis ? " and incorporating missing keywords naturally" : ""}
 2. Maintain all sections in order: Professional Summary, Technical Skills, Education, Relevant Experience, Projects
-3. For Technical Skills: ${resume.technicalSkillsSection 
-  ? `PRESERVE THE EXACT FORMATTING AND LAYOUT from the original resume shown above. 
+3. For Technical Skills: ${resume.technicalSkillsSection
+      ? `PRESERVE THE EXACT FORMATTING AND LAYOUT from the original resume shown above. 
      - Keep ALL category headings exactly as they appear (e.g., "Programming Languages:", "Backend Frameworks & Tools:")
      - Keep the comma-separated format for skills under each category
      - Preserve all line breaks between categories
@@ -421,7 +423,7 @@ INSTRUCTIONS:
      - Add skills thoughtfully and sparingly - only add 2-4 highly relevant skills maximum
      - Do NOT change the category names or structure
      - The output format should look EXACTLY like the original, just with potentially reordered and a few added skills`
-  : "Format skills with category headings followed by colons, then comma-separated lists. Use line breaks between categories. You may add relevant skills from the job description. Example: 'Programming Languages: Python, JavaScript\nFrameworks: React, Django'"}
+      : "Format skills with category headings followed by colons, then comma-separated lists. Use line breaks between categories. You may add relevant skills from the job description. Example: 'Programming Languages: Python, JavaScript\nFrameworks: React, Django'"}
 4. Reorder bullet points within experience and projects to prioritize items most relevant to the job
 5. For each relevant experience entry, you MAY add up to 2 additional bullet points IF:
    - They logically fit the role's responsibilities based on the job title and existing bullets
@@ -445,7 +447,7 @@ Return ONLY valid JSON, no markdown, no additional text.`;
   // Get user's preference for resume optimization AI provider
   const providerSetting = await storage.getSetting("resume_optimization_provider", userId);
   const provider = (providerSetting?.value as "perplexity" | "openrouter" | "gemini") || "gemini"; // Default to Gemini
-  
+
   // Use the user's preferred AI provider for resume optimization
   const aiResult = await callAIWithFallback(messages, "sonar-pro", userId, provider);
 
@@ -459,23 +461,23 @@ Return ONLY valid JSON, no markdown, no additional text.`;
   try {
     // Try to extract JSON from the response (it might be wrapped in markdown)
     let jsonContent = aiResult.content.trim();
-    
+
     // Remove markdown code blocks if present
     if (jsonContent.startsWith("```json")) {
       jsonContent = jsonContent.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
     } else if (jsonContent.startsWith("```")) {
       jsonContent = jsonContent.replace(/^```\s*\n?/, "").replace(/\n?```\s*$/, "");
     }
-    
+
     // Extract JSON object
     const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       jsonContent = jsonMatch[0];
     }
-    
+
     // Remove trailing commas before closing braces/brackets (common JSON error from AI)
     jsonContent = jsonContent.replace(/,(\s*[}\]])/g, "$1");
-    
+
     optimizedResume = JSON.parse(jsonContent);
   } catch (parseError) {
     console.error("Failed to parse optimization response:", aiResult.content);
@@ -486,7 +488,7 @@ Return ONLY valid JSON, no markdown, no additional text.`;
   if (!optimizedResume.professionalSummary || !optimizedResume.technicalSkills) {
     throw new Error("Invalid optimization response: missing required fields");
   }
-  
+
   // Convert technicalSkills array to formatted string if needed (for backward compatibility)
   if (Array.isArray(optimizedResume.technicalSkills) && resume.technicalSkillsSection) {
     // If original had formatted section, try to preserve that format
