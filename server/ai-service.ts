@@ -285,7 +285,7 @@ export async function callAIWithFallback(
     } else if (provider === "openrouter") {
       try {
         const modelSetting = await storage.getSetting("openrouter_model", userId);
-        const selectedModel = modelSetting?.value || "mistralai/mistral-small-3.1-24b-instruct:free";
+        const selectedModel = modelSetting?.value || "qwen/qwen3.8-27b:free";
         const result = await tryOpenRouter(messages, model, userId);
         if (result) {
           try {
@@ -468,24 +468,34 @@ async function tryPerplexity(
 }
 
 /**
- * List of verified working OpenRouter free models (tested Feb 2026)
- * Order: fastest/reliable first for fallback chain
+ * List of verified working OpenRouter free models (tested Sep 2026)
+ * Order: best general-purpose first for fallback chain
  */
 const AVAILABLE_OPENROUTER_MODELS = [
+  "qwen/qwen3.8-27b:free",                              // 27B dense, vision+video, 262K context
+  "nvidia/nemotron-3-ultra-550b-a55b:free",              // 550B MoE (55B active), 1M context, frontier reasoning
+  "google/gemma-4-31b-it:free",                          // 31B dense, multimodal, 262K context
+  "nvidia/nemotron-3-super-120b-a12b:free",              // 120B MoE (12B active), 262K context
+  "google/gemma-4-26b-a4b-it:free",                      // 26B MoE (4B active), multimodal, 262K context
+  "thinkingmachines/inkling:free",                       // 41B active MoE, multimodal+audio, 1M context
+  "poolside/laguna-s-2.1:free",                          // 118B coding agent, 262K context
+  "dots-studio/dots-3-note-preview:free",                // 280B MoE (16B active), 512K context
+];
+
+/**
+ * Known broken/unavailable models (no longer free or removed from OpenRouter)
+ */
+const BROKEN_MODELS = [
+  // Removed from free tier as of Sep 2026
   "mistralai/mistral-small-3.1-24b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
-  "arcee-ai/trinity-large-preview:free", // NEW: 400B MoE, 128K context, creative/agentic
+  "arcee-ai/trinity-large-preview:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-4b-it:free",
   "google/gemma-3n-e2b-it:free",
   "google/gemma-3-12b-it:free",
   "google/gemma-3-27b-it:free",
-];
-
-/**
- * Known broken/unavailable models (404, rate-limited, or invalid)
- */
-const BROKEN_MODELS = [
+  // Previously broken
   "google/gemini-2.0-flash-exp:free",
   "google/gemini-2.5-flash-preview:free",
   "mistralai/mistral-7b-instruct:free",
@@ -509,12 +519,12 @@ const BROKEN_MODELS = [
  */
 async function tryOpenRouter(
   messages: AIChatMessage[],
-  model: string = "mistralai/mistral-small-3.1-24b-instruct:free", // Default to verified working model
+  model: string = "qwen/qwen3.8-27b:free", // Default to verified working model
   userId: string
 ): Promise<string | null> {
   // Get user's preferred OpenRouter model or use default (declare outside try for error handling)
   const modelSetting = await storage.getSetting("openrouter_model", userId);
-  let selectedModel = modelSetting?.value || "mistralai/mistral-small-3.1-24b-instruct:free"; // Default to verified working model
+  let selectedModel = modelSetting?.value || "qwen/qwen3.8-27b:free"; // Default to verified working model
   
   // Filter out broken models and get list of models to try
   const availableModels = AVAILABLE_OPENROUTER_MODELS.filter(m => !BROKEN_MODELS.includes(m));

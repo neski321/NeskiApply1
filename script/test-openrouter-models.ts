@@ -12,59 +12,35 @@ import OpenAI from "openai";
 import "dotenv/config";
 import { storage } from "../server/storage.js";
 
-// List of free models to test
+// Current free models on OpenRouter (Sep 2026)
 const modelsToTest = [
-  // Google models
-  "google/gemini-2.0-flash-exp:free",
-  "google/gemini-2.5-flash-preview:free",
-  "google/gemma-3-27b-it:free",
+  // Current working free models (Sep 2026)
+  "qwen/qwen3.8-27b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "thinkingmachines/inkling:free",
+  "thinkingmachines/inkling-small:free",
+  "poolside/laguna-s-2.1:free",
+  "poolside/laguna-xs-2.1:free",
+  "dots-studio/dots-3-note-preview:free",
+  "nvidia/nemotron-3.5-lightning:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "nvidia/nemotron-3.5-content-safety:free",
+  "cohere/north-mini-code:free",
+  "liquid/lfm-2.5-2.6b:free",
+  "inclusionai/ling-3.0-flash-sante:free",
+
+  // Previously used models (verify they're still broken)
+  "mistralai/mistral-small-3.1-24b-instruct:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
+  "arcee-ai/trinity-large-preview:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-4b-it:free",
   "google/gemma-3n-e2b-it:free",
-  
-  // Mistral models
-  "mistralai/mistral-nemo:free",
-  "mistralai/mistral-7b-instruct:free",
-  "mistralai/devstral-2512:free",
-  "mistralai/mistral-small-3.1-24b-instruct:free",
-  
-  // Xiaomi models
-  "xiaomi/mimo-v2-flash:free",
-  
-  // Meta Llama models
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "meta-llama/llama-3.1-405b-instruct:free",
-  "meta-llama/llama-3.2-3b-instruct:free",
-  "meta-llama/llama-3.1-8b-instruct:free",
-  
-  // DeepSeek/TNG models
-  "tngtech/deepseek-r1t2-chimera:free",
-  "tngtech/deepseek-r1t-chimera:free",
-  "tngtech/tng-r1t-chimera:free",
-  "deepseek/deepseek-r1-0528:free",
-  
-  // Qwen models
-  "qwen/qwen3-coder:free",
-  "qwen/qwen-2.5-vl-7b-instruct:free",
-  "qwen/qwen3-4b:free",
-  
-  // NVIDIA models
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "nvidia/nemotron-nano-12b-v2-vl:free",
-  "nvidia/nemotron-nano-9b-v2:free",
-  
-  // Z.AI models
-  "z-ai/glm-4.5-air:free",
-  
-  // OpenAI models
-  "openai/gpt-oss-120b:free",
-  "openai/gpt-oss-20b:free",
-  
-  // NEW models (Feb 2026 - from OpenRouter free models collection)
-  "arcee-ai/trinity-large-preview:free",
-  "arcee-ai/trinity-mini:free",
-  "stepfun/step-3.5-flash:free",
-  "upstage/solar-pro-3:free",
-  "openrouter/aurora-alpha",
+  "google/gemma-3-12b-it:free",
+  "google/gemma-3-27b-it:free",
 ];
 
 interface TestResult {
