@@ -12,6 +12,18 @@ import OpenAI from "openai";
 import pg from "pg";
 
 const AVAILABLE_OPENROUTER_MODELS = [
+  "qwen/qwen3.8-27b:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "thinkingmachines/inkling:free",
+  "poolside/laguna-s-2.1:free",
+  "dots-studio/dots-3-note-preview:free",
+];
+
+const BROKEN_MODELS = [
+  // Removed from free tier as of Sep 2026
   "mistralai/mistral-small-3.1-24b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
   "arcee-ai/trinity-large-preview:free",
@@ -20,9 +32,7 @@ const AVAILABLE_OPENROUTER_MODELS = [
   "google/gemma-3n-e2b-it:free",
   "google/gemma-3-12b-it:free",
   "google/gemma-3-27b-it:free",
-];
-
-const BROKEN_MODELS = [
+  // Previously broken
   "google/gemini-2.0-flash-exp:free",
   "google/gemini-2.5-flash-preview:free",
   "mistralai/mistral-7b-instruct:free",

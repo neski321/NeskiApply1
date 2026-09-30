@@ -79,7 +79,7 @@ export default function Settings() {
     geminiApiKey: "",
     geminiModel: "gemini-2.5-flash",
     openrouterApiKey: "",
-    openrouterModel: "mistralai/mistral-small-3.1-24b-instruct:free",
+    openrouterModel: "qwen/qwen3.8-27b:free",
     resumeOptimizationProvider: "perplexity",
     jsearchApiKey: "",
     jsearchRapidApiHost: "",
@@ -208,7 +208,7 @@ export default function Settings() {
         geminiApiKey: settingsMap.gemini_api_key || "",
         geminiModel: settingsMap.gemini_model || "gemini-2.5-flash",
         openrouterApiKey: settingsMap.openrouter_api_key || "",
-        openrouterModel: settingsMap.openrouter_model || "mistralai/mistral-small-3.1-24b-instruct:free",
+        openrouterModel: settingsMap.openrouter_model || "qwen/qwen3.8-27b:free",
         resumeOptimizationProvider: settingsMap.resume_optimization_provider || "gemini",
         jsearchApiKey: settingsMap.jsearch_api_key || "",
         jsearchRapidApiHost: settingsMap.jsearch_rapidapi_host || "",
@@ -1347,14 +1347,14 @@ export default function Settings() {
                       onChange={(e) => setFormData({ ...formData, openrouterModel: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="mistralai/mistral-small-3.1-24b-instruct:free">Mistral Small 3.1 24B - Fast & Reliable (Recommended)</option>
-                      <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct - Lightweight (128K context)</option>
-                      <option value="arcee-ai/trinity-large-preview:free">Arcee Trinity Large - 400B, Creative & Agentic (128K context)</option>
-                      <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct - Multilingual (128K context)</option>
-                      <option value="google/gemma-3-4b-it:free">Gemma 3 4B - Multimodal (128K context)</option>
-                      <option value="google/gemma-3n-e2b-it:free">Gemma 3n E2B - Efficient (32K context)</option>
-                      <option value="google/gemma-3-12b-it:free">Gemma 3 12B - Multimodal (128K context)</option>
-                      <option value="google/gemma-3-27b-it:free">Gemma 3 27B - Multimodal, Strong Reasoning (128K context)</option>
+                      <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B - Vision+Video, Strong Reasoning (Recommended)</option>
+                      <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B - Frontier Reasoning (1M context)</option>
+                      <option value="google/gemma-4-31b-it:free">Gemma 4 31B - Dense Multimodal (262K context)</option>
+                      <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B - Efficient MoE (262K context)</option>
+                      <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE - Lightweight Multimodal (262K context)</option>
+                      <option value="thinkingmachines/inkling:free">Inkling 41B - Multimodal+Audio MoE (1M context)</option>
+                      <option value="poolside/laguna-s-2.1:free">Laguna S 2.1 - Coding Agent 118B (262K context)</option>
+                      <option value="dots-studio/dots-3-note-preview:free">Dots3-Note 280B MoE - 16B Active (512K context)</option>
                     </select>
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 space-y-1">
                       <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">

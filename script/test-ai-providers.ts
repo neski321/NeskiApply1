@@ -138,7 +138,7 @@ async function main() {
     // Fetch preferred models
     const perplexityModel = (await storage.getSetting("perplexity_model", user.id))?.value || "sonar-pro";
     const geminiModel = (await storage.getSetting("gemini_model", user.id))?.value || "gemini-2.5-flash";
-    const openrouterModel = (await storage.getSetting("openrouter_model", user.id))?.value || "mistralai/mistral-small-3.1-24b-instruct:free";
+    const openrouterModel = (await storage.getSetting("openrouter_model", user.id))?.value || "qwen/qwen3.8-27b:free";
 
     // Test Perplexity
     if (perplexityKey) {
